@@ -367,6 +367,13 @@ app.whenReady().then(async () => {
   });
   try {
     await mainWindow.loadURL(devUrl ?? entryUrl);
+    if (!closing && !mainWindow.isDestroyed()) {
+      mainWindow.show();
+      if (devUrl) {
+        mainWindow.setTitle('FileCanvas · 开发体验 · 展开式整理');
+        mainWindow.focus();
+      }
+    }
   } catch (error) {
     if (!closing) {
       dialog.showErrorBox('FileCanvas 启动失败', readableError(error));
