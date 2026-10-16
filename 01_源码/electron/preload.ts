@@ -1,6 +1,16 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type { FileCanvasApi } from '../src/domain/types';
 const api: FileCanvasApi = {
+  readContent: (path) => ipcRenderer.invoke('fc:content', path),
+  aiSettings: () => ipcRenderer.invoke('fc:ai-settings'),
+  saveAiSettings: (settings) => ipcRenderer.invoke('fc:ai-save', settings),
+  testAi: () => ipcRenderer.invoke('fc:ai-test'),
+  buildIndex: () => ipcRenderer.invoke('fc:ai-index'),
+  indexStatus: () => ipcRenderer.invoke('fc:ai-index-status'),
+  prepareAi: (project, ids, question) =>
+    ipcRenderer.invoke('fc:ai-prepare', project, ids, question),
+  askAi: (project, ids, question, organize, context, history) =>
+    ipcRenderer.invoke('fc:ai-ask', project, ids, question, organize, context, history),
   openRoot: () => ipcRenderer.invoke('fc:open-root'),
   listDirectory: (path) => ipcRenderer.invoke('fc:list', path),
   search: (query) => ipcRenderer.invoke('fc:search', query),

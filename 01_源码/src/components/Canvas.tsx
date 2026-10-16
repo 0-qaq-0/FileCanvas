@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { FolderPlus, LayoutGrid, MousePointer2, CornerUpLeft } from 'lucide-react';
-import type { CanvasNode, NodeMap } from '../domain/types';
+import { FolderPlus, LayoutGrid, MousePointer2, CornerUpLeft, Eye, FolderOpen } from 'lucide-react';
+import type { CanvasNode, FileContent, NodeMap } from '../domain/types';
 import { children } from '../domain/workspace';
 import { FileIcon, formatSize } from './FileIcon';
 
@@ -19,6 +19,52 @@ interface Props {
   ): Promise<void>;
   onCreate(): void;
   onRename(id: string): void;
+  onInspect(id: string): void;
+  onBrowse(): void;
+}
+
+function CardVisual({ node, nodes }: { node: CanvasNode; nodes: NodeMap }) {
+  const [content, setContent] = useState<FileContent | null>(null);
+  useEffect(() => {
+    let active = true;
+    if (node.source && node.kind === 'file')
+      window.fileCanvas
+        .readContent(node.source.path)
+        .then((r) => {
+          if (active && r.ok && r.data) setContent(r.data);
+        })
+        .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [node.id, node.source?.path]);
+  if (node.kind === 'folder') {
+    const children = Object.values(nodes).filter((n) => n.parentId === node.id);
+    return (
+      <div className="folder-visual">
+        <FileIcon name={node.name} folder size={43} />
+        <div>
+          {children.slice(0, 2).map((n) => (
+            <span key={n.id}>
+              <FileIcon name={n.name} folder={n.kind === 'folder'} size={10} />
+              {n.name}
+            </span>
+          ))}
+          {!children.length && <span>拖文件到这里</span>}
+        </div>
+      </div>
+    );
+  }
+  if (content?.kind === 'image')
+    return <img className="card-thumbnail" src={content.dataUrl} alt="" draggable={false} />;
+  if (content?.kind === 'text' && content.text)
+    return (
+      <div className="card-document">
+        <FileIcon name={node.name} size={15} />
+        <span>{content.text.slice(0, 90)}</span>
+      </div>
+    );
+  return <FileIcon name={node.name} size={39} />;
 }
 type Gesture =
   | {
@@ -44,6 +90,7 @@ export function Canvas(props: Props) {
   const container = useRef<HTMLDivElement>(null);
   const surface = useRef<HTMLDivElement>(null);
   const gesture = useRef<Gesture | null>(null);
+  const moved = useRef(false);
   const [draft, setDraft] = useState<Record<string, { x: number; y: number }>>({});
   const [box, setBox] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
   const [hover, setHover] = useState<string | null>(null);
@@ -89,6 +136,7 @@ export function Canvas(props: Props) {
   }
   function begin(event: React.PointerEvent, node?: CanvasNode) {
     if (event.button !== 0 || (event.target as HTMLElement).closest('button')) return;
+    moved.current = false;
     const p = point(event);
     if (node) {
       event.stopPropagation();
@@ -132,6 +180,7 @@ export function Canvas(props: Props) {
         rawY = p.y - g.startY;
       if (Math.abs(rawX) + Math.abs(rawY) < 5 && !g.moved) return;
       g.moved = true;
+      moved.current = true;
       if (!surface.current!.hasPointerCapture(event.pointerId))
         surface.current!.setPointerCapture(event.pointerId);
       const dx = Math.min(
@@ -254,6 +303,10 @@ export function Canvas(props: Props) {
           {visible.length} 项
         </span>
         <div>
+          <button className="text-button" onClick={props.onBrowse}>
+            <FolderOpen size={14} />
+            添加文件
+          </button>
           {parentId && (
             <button
               className="text-button"
@@ -326,7 +379,7 @@ export function Canvas(props: Props) {
               </div>
               <h2>{parentId ? '把文件放进这个文件夹' : '让文件，各归其位'}</h2>
               <p>
-                从左侧拖入文件，或先建一个虚拟文件夹。
+                点击“添加文件”展开文件栏，或先建一个虚拟文件夹。
                 <br />
                 放心尝试，每一步都只发生在画布里。
               </p>
@@ -351,13 +404,16 @@ export function Canvas(props: Props) {
               className={`canvas-card ${selected.includes(node.id) ? 'selected' : ''} ${draft[node.id] ? 'dragging' : ''} ${hover === node.id ? 'drop-target' : ''}`}
               style={{ left: draft[node.id]?.x ?? node.x, top: draft[node.id]?.y ?? node.y }}
               onPointerDown={(event) => begin(event, node)}
+              onClick={() => {
+                if (!moved.current) props.onInspect(node.id);
+              }}
               onDoubleClick={() =>
-                node.kind === 'folder' ? onEnter(node.id) : props.onRename(node.id)
+                node.kind === 'folder' ? onEnter(node.id) : props.onInspect(node.id)
               }
               onKeyDown={(event) => {
                 if (event.key === 'Enter') {
                   event.stopPropagation();
-                  node.kind === 'folder' ? onEnter(node.id) : props.onRename(node.id);
+                  node.kind === 'folder' ? onEnter(node.id) : props.onInspect(node.id);
                 }
                 if (event.key === ' ') {
                   event.preventDefault();
@@ -372,7 +428,7 @@ export function Canvas(props: Props) {
                     : node.name.split('.').at(-1)?.toUpperCase()
                   : '虚拟文件夹'}
               </span>
-              <FileIcon name={node.name} folder={node.kind === 'folder'} size={39} />
+              <CardVisual node={node} nodes={nodes} />
               <span className="card-name" title={node.name}>
                 {node.name}
               </span>
@@ -381,6 +437,17 @@ export function Canvas(props: Props) {
                   ? `${counts[node.id] ?? 0} 个子项`
                   : formatSize(node.source?.size ?? 0)}
               </small>
+              <button
+                className="card-preview-button"
+                title={`预览 ${node.name}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onSelect([node.id]);
+                  props.onInspect(node.id);
+                }}
+              >
+                <Eye size={13} />
+              </button>
             </div>
           ))}
           {box && (
@@ -392,7 +459,7 @@ export function Canvas(props: Props) {
         </div>
       </div>
       <div className="canvas-hint">
-        <span>拖到文件夹卡片内即可分类 · Ctrl / Shift 多选 · 空白处拖动框选</span>
+        <span>单击预览 · 双击进入文件夹 · 拖入文件夹分类 · Ctrl / Shift 多选 · 空白处框选</span>
         <span>Ctrl+Z 撤销 / Ctrl+Y 重做</span>
       </div>
     </>
