@@ -11,9 +11,9 @@ import {
   validateName,
   validateNodes,
   workspace,
-} from '../src/domain/workspace';
-import { createProject } from '../electron/filesystem';
-import type { ImportEntry } from '../src/domain/types';
+} from '../../01_源码/src/domain/workspace';
+import { createProject } from '../../01_源码/electron/filesystem';
+import type { ImportEntry } from '../../01_源码/src/domain/types';
 
 function setup() {
   return workspace(createProject('C:\\FileCanvasTests'));

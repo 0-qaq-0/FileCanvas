@@ -32,7 +32,7 @@ if (e2e && process.env.FILECANVAS_TEST_DATA) {
     throw new Error('测试数据目录必须使用专用临时目录。');
   app.setPath('userData', dir);
 }
-const entryUrl = pathToFileURL(path.join(__dirname, '../dist/index.html')).href;
+const entryUrl = pathToFileURL(path.join(__dirname, '../renderer/index.html')).href;
 const hasInstanceLock = app.requestSingleInstanceLock();
 if (!hasInstanceLock) app.quit();
 app.on('second-instance', () => {
@@ -82,7 +82,7 @@ app.whenReady().then(async () => {
     minWidth: 1000,
     minHeight: 680,
     backgroundColor: '#f5f6f8',
-    icon: path.join(__dirname, '../assets/icon.ico'),
+    icon: path.join(__dirname, '../../01_源码/assets/icon.ico'),
     title: 'FileCanvas · 虚拟文件整理',
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),

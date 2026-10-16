@@ -58,7 +58,7 @@ const launch = async () => {
   await page.waitForLoadState('domcontentloaded');
   return [instance, page];
 };
-await fs.mkdir('test-results', { recursive: true });
+await fs.mkdir('03_测试结果', { recursive: true });
 const report = {
   base,
   root,
@@ -156,7 +156,7 @@ try {
   await expect(preview).toContainText(path.join(root, 'A.jpg'));
   await expect(preview).toContainText(path.join(root, '图片', 'A.jpg'));
   expect(await fingerprint()).toEqual(before);
-  await page.screenshot({ path: 'test-results/preview.png' });
+  await page.screenshot({ path: '03_测试结果/preview.png' });
   await page.getByRole('button', { name: '返回继续整理' }).click();
   pass('B/C：连续拖动、文件夹导航保留坐标；A.jpg 目标路径正确，真实文件未改变');
   await page.getByRole('button', { name: '返回上一级', exact: true }).click();
@@ -200,7 +200,7 @@ try {
   await page.getByRole('button', { name: '保存', exact: true }).click();
   await expect(page.getByTestId('save-state')).toHaveText('项目已保存');
   await page.keyboard.press('Escape');
-  await page.screenshot({ path: 'test-results/workspace.png' });
+  await page.screenshot({ path: '03_测试结果/workspace.png' });
   const storedFiles = (await fs.readdir(path.join(data, 'projects'))).filter((n) =>
     n.endsWith('.json'),
   );
@@ -232,14 +232,14 @@ try {
   await page.getByRole('button', { name: '返回继续整理' }).click();
   pass('D：预览重新检查外部目标冲突与被删除的源文件');
   await page.setViewportSize({ width: 1000, height: 680 });
-  await page.screenshot({ path: 'test-results/compact.png' });
+  await page.screenshot({ path: '03_测试结果/compact.png' });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
     true,
   );
   expect(errors).toEqual([]);
   report.status = 'passed';
   report.rendererErrors = errors;
-  await fs.writeFile('test-results/acceptance.json', JSON.stringify(report, null, 2), 'utf8');
+  await fs.writeFile('03_测试结果/acceptance.json', JSON.stringify(report, null, 2), 'utf8');
   console.log(`Acceptance passed. Isolated fixture retained: ${base}`);
 } catch (error) {
   report.status = 'failed';
@@ -247,10 +247,10 @@ try {
   report.rendererErrors = errors;
   if (desktop) {
     try {
-      await (await desktop.firstWindow()).screenshot({ path: 'test-results/failure.png' });
+      await (await desktop.firstWindow()).screenshot({ path: '03_测试结果/failure.png' });
     } catch {}
   }
-  await fs.writeFile('test-results/acceptance.json', JSON.stringify(report, null, 2), 'utf8');
+  await fs.writeFile('03_测试结果/acceptance.json', JSON.stringify(report, null, 2), 'utf8');
   throw error;
 } finally {
   if (desktop) await desktop.close();

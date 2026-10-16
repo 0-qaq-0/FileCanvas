@@ -22,7 +22,7 @@ try {
   await expect(page.getByRole('button', { name: '选择文件夹，开始整理' })).toBeVisible();
   expect(errors).toEqual([]);
   await fs.writeFile(
-    'test-results/dev-smoke.json',
+    '03_测试结果/dev-smoke.json',
     JSON.stringify({ status: 'passed', url: page.url(), errors }, null, 2),
     'utf8',
   );

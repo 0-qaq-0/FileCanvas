@@ -20,5 +20,5 @@ for (const ready of [false, true]) {
     await app.close();
   }
 }
-await fs.writeFile('test-results/close-smoke.json', JSON.stringify(results, null, 2), 'utf8');
+await fs.writeFile('03_测试结果/close-smoke.json', JSON.stringify(results, null, 2), 'utf8');
 console.log('Native close handshake passed in both startup states.');

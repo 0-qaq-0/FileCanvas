@@ -3,8 +3,8 @@ import { createServer } from 'vite';
 import { build } from 'esbuild';
 import electron from 'electron';
 await build({
-  entryPoints: ['electron/main.ts', 'electron/preload.ts'],
-  outdir: 'dist-electron',
+  entryPoints: ['01_源码/electron/main.ts', '01_源码/electron/preload.ts'],
+  outdir: '06_构建产物/electron',
   outExtension: { '.js': '.cjs' },
   bundle: true,
   platform: 'node',
