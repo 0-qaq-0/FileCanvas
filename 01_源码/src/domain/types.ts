@@ -67,7 +67,65 @@ export interface ApiResult<T> {
   data?: T;
   error?: string;
 }
+export interface FileContent {
+  kind: 'text' | 'image' | 'unsupported';
+  text?: string;
+  dataUrl?: string;
+  truncated?: boolean;
+  message?: string;
+}
+export interface AiSettings {
+  baseUrl: string;
+  model: string;
+  hasKey: boolean;
+}
+export interface IndexStatus {
+  files: number;
+  chunks: number;
+  skipped: number;
+  truncated: boolean;
+  builtAt: string | null;
+}
+export interface ContextSource {
+  path: string;
+  text: string;
+}
+export interface AiContext {
+  id: string;
+  sources: ContextSource[];
+  manifest: { id: string; name: string; path: string; kind: EntryKind }[];
+  index: IndexStatus;
+  omitted: number;
+}
+export interface AiGroup {
+  folder: string;
+  ids: string[];
+  reason: string;
+}
+export interface AiReply {
+  answer: string;
+  groups: AiGroup[];
+}
 export interface FileCanvasApi {
+  readContent(path: string): Promise<ApiResult<FileContent>>;
+  aiSettings(): Promise<ApiResult<AiSettings>>;
+  saveAiSettings(settings: {
+    baseUrl: string;
+    model: string;
+    apiKey?: string;
+  }): Promise<ApiResult<AiSettings>>;
+  testAi(): Promise<ApiResult<string>>;
+  buildIndex(): Promise<ApiResult<IndexStatus>>;
+  indexStatus(): Promise<ApiResult<IndexStatus>>;
+  prepareAi(project: Project, ids: string[], question: string): Promise<ApiResult<AiContext>>;
+  askAi(
+    project: Project,
+    ids: string[],
+    question: string,
+    organize: boolean,
+    context: AiContext,
+    history: { role: 'user' | 'assistant'; content: string }[],
+  ): Promise<ApiResult<AiReply>>;
   openRoot(): Promise<ApiResult<Project | null>>;
   listDirectory(path: string): Promise<ApiResult<SourceEntry[]>>;
   search(query: string): Promise<ApiResult<{ entries: SourceEntry[]; truncated: boolean }>>;

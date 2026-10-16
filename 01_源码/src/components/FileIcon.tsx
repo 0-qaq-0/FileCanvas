@@ -1,4 +1,15 @@
-import { File, FileImage, FileText, Film, Folder, Music, Archive, FileCode2 } from 'lucide-react';
+import {
+  File,
+  FileImage,
+  FileText,
+  Film,
+  Folder,
+  Music,
+  Archive,
+  FileCode2,
+  FileSpreadsheet,
+  Presentation,
+} from 'lucide-react';
 export function FileIcon({
   name,
   folder = false,
@@ -19,11 +30,15 @@ export function FileIcon({
           ? Music
           : /^(zip|rar|7z)$/.test(extension)
             ? Archive
-            : /^(js|ts|py|html|css|json)$/.test(extension)
-              ? FileCode2
-              : /^(pdf|docx?|txt|md|xlsx?|pptx?)$/.test(extension)
-                ? FileText
-                : File;
+            : /^(xlsx?|csv|tsv)$/.test(extension)
+              ? FileSpreadsheet
+              : /^(pptx?)$/.test(extension)
+                ? Presentation
+                : /^(js|ts|tsx|jsx|py|html|css|json|c|cpp|h|go|rs|java)$/.test(extension)
+                  ? FileCode2
+                  : /^(pdf|docx?|txt|md|xlsx?|pptx?)$/.test(extension)
+                    ? FileText
+                    : File;
   const color = folder
     ? 'folder'
     : Icon === FileImage
@@ -32,7 +47,17 @@ export function FileIcon({
         ? 'video'
         : Icon === FileText
           ? 'document'
-          : 'generic';
+          : Icon === FileSpreadsheet
+            ? 'spreadsheet'
+            : Icon === Presentation
+              ? 'presentation'
+              : Icon === Music
+                ? 'audio'
+                : Icon === Archive
+                  ? 'archive'
+                  : Icon === FileCode2
+                    ? 'code'
+                    : 'generic';
   return (
     <span className={`file-icon ${color}`}>
       <Icon

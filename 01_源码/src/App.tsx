@@ -20,6 +20,9 @@ import {
   PanelLeft,
   Layers3,
   Play,
+  Maximize2,
+  Minimize2,
+  MoreHorizontal,
 } from 'lucide-react';
 import type {
   ApiResult,
@@ -44,7 +47,9 @@ import { Browser } from './components/Browser';
 import { Canvas } from './components/Canvas';
 import { Modal, MoveDialog, PreviewDialog, ProjectsDialog } from './components/Dialogs';
 import { DraftDialog } from './components/DraftDialog';
-import { PathInspector } from './components/PathInspector';
+import { ContentPanel } from './components/ContentPanel';
+import { AiPanel } from './components/AiPanel';
+import { adoptAiPlan } from './domain/ai-plan';
 import { buildClassificationDraft } from './domain/drafts';
 
 function unwrap<T>(response: ApiResult<T>): T {
@@ -72,6 +77,10 @@ export default function App() {
   const [showUnchanged, setShowUnchanged] = useState(false);
   const [exportPath, setExportPath] = useState<string | null>(null);
   const [canvasRevision, setCanvasRevision] = useState(0);
+  const [showBrowser, setShowBrowser] = useState(false);
+  const [showAi, setShowAi] = useState(false);
+  const [inspectId, setInspectId] = useState<string | null>(null);
+  const [focused, setFocused] = useState(false);
   function notify(message: string) {
     setToast(message);
   }
@@ -193,12 +202,25 @@ export default function App() {
       await persist();
       const project = unwrap(await window.fileCanvas.openRoot());
       if (project) {
-        replace(workspace(project));
+        const entries = unwrap(await window.fileCanvas.listDirectory(project.rootPath));
+        try {
+          const imported = unwrap(
+            await window.fileCanvas.importPaths(
+              entries.filter((e) => !e.blocked).map((e) => e.path),
+            ),
+          );
+          replace(importEntries(workspace(project), imported, null));
+        } catch (e) {
+          replace(workspace(project));
+          setShowBrowser(true);
+          notify(`文件夹已打开，请从文件栏分批加入：${(e as Error).message}`);
+        }
         setParentId(null);
         setSelected([]);
         setPreview(null);
         setExportPath(null);
-        notify('已创建只读整理项目。原始文件不会被修改。');
+        setInspectId(null);
+        setShowAi(false);
       }
     });
   }
@@ -231,6 +253,7 @@ export default function App() {
   function enter(id: string | null) {
     setParentId(id);
     setSelected([]);
+    setInspectId(null);
   }
   function openCreate() {
     setName('新建文件夹');
@@ -296,82 +319,48 @@ export default function App() {
     );
   }).length;
   return (
-    <div className={`app-shell ${dialog ? 'has-dialog' : ''}`}>
-      <div className="brandbar">
+    <div
+      className={`app-shell canvas-first ${focused ? 'focus-mode' : ''} ${dialog ? 'has-dialog' : ''}`}
+    >
+      <header className="main-header">
         <div className="brand">
           <span className="brand-mark">
-            <Files size={19} />
+            <Files size={20} />
           </span>
           <strong>FileCanvas</strong>
-          <span className="brand-separator" />
-          <span>文件整理演练台</span>
         </div>
-        <div className="safe-badge">
-          <ShieldCheck size={14} />
-          安全 MVP · 原始文件只读
-        </div>
-        <button className="icon-button help" title="使用说明" onClick={() => setDialog('help')}>
-          <Info size={18} />
-        </button>
-      </div>
-      <header className="toolbar">
-        <div className="toolbar-group">
-          <button className="button" disabled={busy || starting} onClick={openFolder}>
-            <FolderOpen size={16} />
-            打开文件夹 / 新建项目
-          </button>
-          <button
-            className="icon-button"
-            title="打开已保存项目"
-            disabled={busy || starting}
-            onClick={() =>
-              void run(async () => {
-                await persist();
-                setRecords(unwrap(await window.fileCanvas.projects()));
-                setDialog('projects');
-              })
-            }
-          >
-            <Files size={18} />
-          </button>
-          <button
-            className="button subtle"
-            disabled={!state || busy}
-            onClick={() =>
-              void persist()
-                .then(() => notify('项目已保存至软件数据目录。'))
-                .catch(() => {})
-            }
-          >
-            <Save size={16} />
-            保存
-          </button>
-        </div>
-        <span className="toolbar-divider" />
-        <div className="toolbar-group">
-          <button
-            className="icon-button"
-            aria-label="撤销"
-            title={`撤销 ${state?.past.at(-1)?.label ?? ''} (Ctrl+Z)`}
-            disabled={!state?.past.length || busy}
-            onClick={() => edit(undo)}
-          >
-            <Undo2 size={18} />
-          </button>
-          <button
-            className="icon-button"
-            aria-label="重做"
-            title="重做 (Ctrl+Y)"
-            disabled={!state?.future.length || busy}
-            onClick={() => edit(redo)}
-          >
-            <Redo2 size={18} />
-          </button>
-        </div>
+        <span className="header-project">{state?.project.name ?? '把文件放到一张画布上'}</span>
         <div className="toolbar-spacer" />
-        <button className="button demo-entry" disabled={busy || starting} onClick={openDemo}>
-          <Play size={15} />
-          体验示例
+        <button className="button subtle" disabled={busy || starting} onClick={openFolder}>
+          <FolderOpen size={16} />
+          打开文件夹
+        </button>
+        <button
+          className={`button ${showBrowser ? 'active-tool' : 'subtle'}`}
+          disabled={!state}
+          aria-pressed={showBrowser}
+          onClick={() => setShowBrowser(!showBrowser)}
+        >
+          <PanelLeft size={16} />
+          文件栏
+        </button>
+        <button
+          className="icon-button"
+          title={`撤销 ${state?.past.at(-1)?.label ?? ''} (Ctrl+Z)`}
+          aria-label="撤销"
+          disabled={!state?.past.length || busy}
+          onClick={() => edit(undo)}
+        >
+          <Undo2 size={18} />
+        </button>
+        <button
+          className="icon-button"
+          title="重做 (Ctrl+Y)"
+          aria-label="重做"
+          disabled={!state?.future.length || busy}
+          onClick={() => edit(redo)}
+        >
+          <Redo2 size={18} />
         </button>
         <button
           className="button"
@@ -388,89 +377,147 @@ export default function App() {
           预览变更{pendingCount > 0 && <span className="count-pill">{pendingCount}</span>}
         </button>
         <button
-          className="button apply-disabled"
-          disabled
-          title="阶段一不提供真实文件修改；请先验收安全 MVP。"
+          className="button primary"
+          disabled={!state}
+          aria-pressed={showAi}
+          onClick={() => {
+            setShowAi(!showAi);
+            setInspectId(null);
+          }}
         >
-          <ShieldCheck size={16} />
-          应用到硬盘<span>阶段二</span>
+          <Sparkles size={16} />
+          AI 助手
         </button>
+        <details
+          className="more-tools"
+          onClick={(e) => {
+            if ((e.target as HTMLElement).closest('button')) e.currentTarget.open = false;
+          }}
+        >
+          <summary aria-label="更多工具" title="更多工具">
+            <MoreHorizontal size={20} />
+          </summary>
+          <div className="more-menu">
+            <button
+              className="button"
+              disabled={!state || busy}
+              onClick={() =>
+                void persist()
+                  .then(() => notify('项目已保存。'))
+                  .catch(() => {})
+              }
+            >
+              <Save size={16} />
+              保存
+            </button>
+            <button
+              className="button"
+              title="打开已保存项目"
+              disabled={busy || starting}
+              onClick={() =>
+                void run(async () => {
+                  await persist();
+                  setRecords(unwrap(await window.fileCanvas.projects()));
+                  setDialog('projects');
+                })
+              }
+            >
+              <Files size={16} />
+              已保存项目
+            </button>
+            <button className="button demo-entry" disabled={busy || starting} onClick={openDemo}>
+              <Play size={16} />
+              体验示例
+            </button>
+            <button
+              className="button"
+              disabled={!state}
+              onClick={() =>
+                void run(async () => {
+                  unwrap(await window.fileCanvas.revealRoot());
+                })
+              }
+            >
+              <FolderOpen size={16} />
+              查看原文件夹
+            </button>
+            <button className="button apply-disabled" disabled title="当前版本只提供虚拟整理">
+              <ShieldCheck size={16} />
+              应用到硬盘（待开放）
+            </button>
+            <button className="button" onClick={() => setDialog('help')}>
+              <Info size={16} />
+              使用说明
+            </button>
+          </div>
+        </details>
       </header>
       {state ? (
         <main className="workspace">
-          <Browser
-            rootPath={state.project.rootPath}
-            projectId={state.project.id}
-            imported={imported}
-            onImport={(paths) => add(paths)}
-            notify={notify}
-          />
-          <section className="workarea">
-            <div className="workspace-heading">
-              <div>
-                <div className="eyebrow">VIRTUAL WORKSPACE</div>
-                <h1>
-                  我的整理画布 <span className="tag">虚拟整理</span>
-                </h1>
-              </div>
-              <div className="heading-actions">
+          {showBrowser && !focused && (
+            <div className="browser-drawer">
+              <div className="drawer-title">
+                <span>原始文件</span>
                 <button
-                  className="button draft-entry"
-                  onClick={() => setDialog('draft')}
-                  disabled={busy}
+                  className="icon-button"
+                  title="收起文件栏"
+                  onClick={() => setShowBrowser(false)}
                 >
-                  <Layers3 size={16} />
-                  分类草案
-                </button>
-                <button className="button" onClick={openCreate} disabled={busy}>
-                  <FolderPlus size={16} />
-                  新建文件夹
+                  <X size={16} />
                 </button>
               </div>
+              <Browser
+                rootPath={state.project.rootPath}
+                projectId={state.project.id}
+                imported={imported}
+                onImport={(paths) => add(paths)}
+                notify={notify}
+              />
             </div>
-            <div className="breadcrumb">
-              <button
-                className="icon-button"
-                title="返回上一级"
-                disabled={!parentId}
-                onClick={() => enter(nodes[parentId!].parentId)}
-              >
-                <ArrowLeft size={16} />
-              </button>
-              <button className={!parentId ? 'active' : ''} onClick={() => enter(null)}>
-                {state.project.name}
-              </button>
-              {ancestors.map((a) => (
-                <span key={a.id}>
-                  <ChevronRight size={13} />
-                  <button className={a.id === parentId ? 'active' : ''} onClick={() => enter(a.id)}>
-                    {a.name}
-                  </button>
-                </span>
-              ))}
-            </div>
-            <div className="virtual-banner">
-              <ShieldCheck size={15} />
-              <span>这里的移动与重命名只改变虚拟结构。画布位置独立保存，不影响硬盘路径。</span>
-              <button
-                className="text-button"
-                onClick={() =>
-                  void run(async () => {
-                    unwrap(await window.fileCanvas.revealRoot());
-                  })
-                }
-              >
-                查看原文件夹
-              </button>
-            </div>
-            {state.project.demo && (
-              <div className="demo-guide">
-                <span className="tag">演示副本 · 20 个真实样例</span>
-                <span>① 生成分类草案 → ② 自由微调 → ③ 对照结构并导出方案</span>
-                <small>再点“体验示例”会新建一份，不覆盖当前进度</small>
+          )}
+          <section className="workarea">
+            <div className="canvas-navigation">
+              <div className="breadcrumb">
+                <button
+                  className="icon-button"
+                  title="返回上一级"
+                  disabled={!parentId}
+                  onClick={() => enter(nodes[parentId!].parentId)}
+                >
+                  <ArrowLeft size={16} />
+                </button>
+                <button className={!parentId ? 'active' : ''} onClick={() => enter(null)}>
+                  {state.project.name}
+                </button>
+                {ancestors.map((a) => (
+                  <span key={a.id}>
+                    <ChevronRight size={13} />
+                    <button
+                      className={a.id === parentId ? 'active' : ''}
+                      onClick={() => enter(a.id)}
+                    >
+                      {a.name}
+                    </button>
+                  </span>
+                ))}
               </div>
-            )}
-            <PathInspector nodes={nodes} selected={selected} root={state.project.rootPath} />
+              <span className="canvas-safe">
+                <ShieldCheck size={13} />
+                虚拟整理 · 原文件不变
+              </span>
+              <button className="button small" onClick={() => setDialog('draft')} disabled={busy}>
+                <Layers3 size={14} />
+                分类草案
+              </button>
+              <button className="button small" onClick={openCreate} disabled={busy}>
+                <FolderPlus size={14} />
+                新建文件夹
+              </button>
+              <button className="button small focus-button" onClick={() => setFocused(!focused)}>
+                {focused ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+                {focused ? '退出专注' : '专注画布'}
+              </button>
+            </div>
             {selected.length > 0 && (
               <div className="selection-toolbar">
                 <strong>已选择 {selected.length} 项</strong>
@@ -504,6 +551,11 @@ export default function App() {
               onEnter={enter}
               onCreate={openCreate}
               onRename={openRename}
+              onInspect={(id) => {
+                setInspectId(id);
+                setShowAi(false);
+              }}
+              onBrowse={() => setShowBrowser(true)}
               onMove={move}
               onImport={add}
               onLayout={(positions) =>
@@ -516,6 +568,58 @@ export default function App() {
               }
             />
           </section>
+          {!focused && inspectId && nodes[inspectId] && (
+            <ContentPanel
+              node={nodes[inspectId]}
+              nodes={nodes}
+              root={state.project.rootPath}
+              onClose={() => setInspectId(null)}
+              onEnter={enter}
+              onSelect={(id) => {
+                setInspectId(id);
+                setSelected([id]);
+              }}
+              onAsk={() => {
+                setSelected([inspectId]);
+                setInspectId(null);
+                setShowAi(true);
+              }}
+            />
+          )}
+          {
+            <AiPanel
+              visible={!focused && showAi}
+              key={`${state.project.id}-${parentId ?? 'root'}`}
+              project={state.project}
+              parentId={parentId}
+              ids={
+                selected.length
+                  ? Object.values(nodes)
+                      .filter(
+                        (n) =>
+                          selected.includes(n.id) ||
+                          selected.some((id) => isDescendant(nodes, n.parentId, id)),
+                      )
+                      .map((n) => n.id)
+                  : Object.values(nodes)
+                      .filter((n) => parentId === null || isDescendant(nodes, n.parentId, parentId))
+                      .map((n) => n.id)
+              }
+              onClose={() => setShowAi(false)}
+              onAdopt={(groups, ids) => {
+                try {
+                  if (current.current) {
+                    replace(adoptAiPlan(current.current, parentId, groups, ids));
+                    setSelected([]);
+                    setCanvasRevision((v) => v + 1);
+                    notify('已采用 AI 草案到画布，Ctrl+Z 可一次撤销。');
+                  }
+                } catch (e) {
+                  notify((e as Error).message);
+                }
+              }}
+            />
+          }
         </main>
       ) : (
         <main className="welcome">
@@ -721,13 +825,17 @@ export default function App() {
       {dialog === 'help' && (
         <Modal title="先虚拟整理，再核对结果" onClose={() => setDialog(null)}>
           <div className="help-content">
-            <p>1. 选择本地文件夹，左侧浏览始终只读。</p>
+            <p>
+              1. 选择本地文件夹，自动将文件加入画布。文件栏、内容预览与 AI
+              助手均可收起；“专注画布”可铺满窗口。
+            </p>
             <p>
               2. 勾选文件后加入画布，或直接拖到右侧。导入文件夹会读取整个子树，最多 5000
               项；遇到不安全条目时整批拒绝。
             </p>
             <p>
-              3. 拖动卡片排列；拖进文件夹卡片改变归属；双击文件夹进入。多选可批量移动。F2
+              3.
+              拖动卡片排列；拖进文件夹卡片改变归属；单击查看内容，双击文件夹进入，双击文件预览。多选可批量移动。F2
               重命名，Ctrl+Z / Ctrl+Y 撤销和重做。
             </p>
             <p>

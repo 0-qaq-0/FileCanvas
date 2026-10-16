@@ -74,14 +74,19 @@ try {
   let page;
   [desktop, page] = await launch();
   await page.getByRole('button', { name: '选择文件夹，开始整理' }).click();
+  await page.getByRole('button', { name: '文件栏', exact: true }).click();
   await expect(page.getByTestId('source-row')).toHaveCount(10);
+  await page.keyboard.press('Control+a');
+  await page.getByRole('button', { name: '移出画布', exact: true }).click();
   const sandbox = await page.evaluate(() => ({
     node: typeof window.require,
     bridge: Object.keys(window.fileCanvas),
   }));
   expect(sandbox.node).toBe('undefined');
   expect(sandbox.bridge).not.toContain('move');
+  await page.getByLabel('更多工具').click();
   await expect(page.getByRole('button', { name: /应用到硬盘/ })).toBeDisabled();
+  await page.getByLabel('更多工具').click();
   pass('Electron 正常启动；渲染进程无 require；真实应用按钮禁用');
   const source = (name) => page.locator(`[data-testid="source-row"][data-name="${name}"]`);
   const card = (name) => page.locator(`[data-testid="canvas-card"][data-name="${name}"]`);
@@ -197,6 +202,7 @@ try {
   await expect(page.getByRole('status')).toContainText('自己');
   await page.getByRole('button', { name: '关闭对话框', exact: true }).click();
   pass('D：界面拒绝重名、非法路径与循环层级；跨子目录搜索通过');
+  await page.getByLabel('更多工具').click();
   await page.getByRole('button', { name: '保存', exact: true }).click();
   await expect(page.getByTestId('save-state')).toHaveText('项目已保存');
   await page.keyboard.press('Escape');

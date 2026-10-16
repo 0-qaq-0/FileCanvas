@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, Menu, shell, safeStorage } from 'electron';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
@@ -20,10 +20,13 @@ import { createSampleFolder } from './demo-samples';
 import { importEntries, workspace } from '../src/domain/workspace';
 import { markdownPlan } from '../src/domain/plan-report';
 import type { Project } from '../src/domain/types';
+import { AiService } from './ai';
+import { readContent } from './content';
 
 let mainWindow: BrowserWindow;
 let activeRoot: string | null = null;
 let storage: ProjectStorage;
+let ai: AiService;
 let lastExport: string | null = null;
 let lastExportDirectory: string | null = null;
 const devUrl =
@@ -33,7 +36,7 @@ const devUrl =
 const e2e = !app.isPackaged && process.env.FILECANVAS_E2E === '1';
 app.setName('FileCanvas');
 app.setPath('userData', path.join(app.getPath('appData'), 'FileCanvas'));
-if (e2e && process.env.FILECANVAS_TEST_DATA) {
+if ((e2e || process.env.FILECANVAS_TEST_PROFILE === '1') && process.env.FILECANVAS_TEST_DATA) {
   const dir = path.resolve(process.env.FILECANVAS_TEST_DATA);
   if (!dir.startsWith(path.join(os.tmpdir(), 'filecanvas-e2e-')))
     throw new Error('测试数据目录必须使用专用临时目录。');
@@ -77,11 +80,21 @@ async function activate(project: Project): Promise<Project> {
   if (inside(project.rootPath, app.getPath('userData')))
     throw new Error('请选择更具体的文件夹，项目根目录不能包含 FileCanvas 自身的数据目录。');
   activeRoot = project.rootPath;
+  ai.reset(activeRoot);
   return project;
 }
 app.whenReady().then(async () => {
   if (!hasInstanceLock) return;
   storage = new ProjectStorage(path.join(app.getPath('userData'), 'projects'));
+  ai = new AiService(app.getPath('userData'), {
+    encrypt(value) {
+      if (!safeStorage.isEncryptionAvailable()) throw new Error('系统密钥加密不可用，未保存密钥。');
+      return safeStorage.encryptString(value).toString('base64');
+    },
+    decrypt(value) {
+      return safeStorage.decryptString(Buffer.from(value, 'base64'));
+    },
+  });
   Menu.setApplicationMenu(null);
   mainWindow = new BrowserWindow({
     width: 1380,
@@ -90,7 +103,7 @@ app.whenReady().then(async () => {
     minHeight: 680,
     backgroundColor: '#f5f6f8',
     icon: path.join(__dirname, '../../01_源码/assets/icon.ico'),
-    title: 'FileCanvas · 虚拟文件整理',
+    title: 'FileCanvas · 文件画布与 AI 助手',
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
@@ -132,6 +145,16 @@ app.whenReady().then(async () => {
     return activate(project);
   });
   handle('fc:list', (directory) => listDirectory(root(), directory));
+  handle('fc:content', (filename) => readContent(root(), filename));
+  handle('fc:ai-settings', () => ai.settings());
+  handle('fc:ai-save', (settings) => ai.save(settings));
+  handle('fc:ai-test', () => ai.test());
+  handle('fc:ai-index', () => ai.build(root()));
+  handle('fc:ai-index-status', () => ai.indexStatus(root()));
+  handle('fc:ai-prepare', (project, ids, question) => ai.prepare(root(), project, ids, question));
+  handle('fc:ai-ask', (project, ids, question, organize, context, history) =>
+    ai.ask(root(), project, ids, question, organize, context, history),
+  );
   handle('fc:search', (query) => searchFiles(root(), query));
   handle('fc:import', (paths) => importPaths(root(), paths));
   handle('fc:save', (project: Project) => {

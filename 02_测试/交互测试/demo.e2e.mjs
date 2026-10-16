@@ -147,6 +147,7 @@ try {
     }
   }
   pass('导出目录和演示目录被替换为目录联接时拒绝写入，边界外测试目录保持为空');
+  await page.getByLabel('更多工具').click();
   await page.getByRole('button', { name: '体验示例', exact: true }).click();
   await expect(page.locator('.statusbar')).toContainText('20 个文件 · 2 个文件夹');
   const secondRecords = await page.evaluate(() => window.fileCanvas.projects());

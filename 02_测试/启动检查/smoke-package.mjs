@@ -1,8 +1,10 @@
 import { _electron as electron, expect } from '@playwright/test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import os from 'node:os';
 import { createHash } from 'node:crypto';
-const env = { ...process.env };
+const profile = await fs.mkdtemp(path.join(os.tmpdir(), 'filecanvas-e2e-package-'));
+const env = { ...process.env, FILECANVAS_TEST_PROFILE: '1', FILECANVAS_TEST_DATA: profile };
 delete env.ELECTRON_RUN_AS_NODE;
 const app = await electron.launch({
   executablePath: '07_发布成品/win-unpacked/FileCanvas.exe',
@@ -11,8 +13,10 @@ const app = await electron.launch({
 });
 try {
   const page = await app.firstWindow();
+  await page.getByLabel('更多工具').click();
   await expect(page.getByRole('button', { name: /应用到硬盘/ })).toBeDisabled();
-  await expect(page.getByRole('button', { name: '打开文件夹 / 新建项目' })).toBeVisible();
+  await page.getByLabel('更多工具').click();
+  await expect(page.getByRole('button', { name: '打开文件夹', exact: true })).toBeVisible();
   const runtime = await app.evaluate(({ app }) => ({
     packaged: app.isPackaged,
     dataPath: app.getPath('userData'),
@@ -25,9 +29,10 @@ try {
   // A packaged app may restore the user's saved project. Inspect the toolbar only;
   // never manipulate its files or capture the user's directory contents.
   const restoredProject = await page.locator('.browser-panel').isVisible();
-  await page.locator('.toolbar').screenshot({ path: '03_测试结果/packaged-startup.png' });
+  await page.locator('.main-header').screenshot({ path: '03_测试结果/packaged-startup.png' });
   let demoChecked = false;
   if (process.argv.includes('--demo')) {
+    await page.getByLabel('更多工具').click();
     await page.getByRole('button', { name: '体验示例', exact: true }).click();
     await expect(page.locator('.statusbar')).toContainText('20 个文件 · 2 个文件夹');
     await expect(page.getByTestId('save-state')).toHaveText('项目已保存');
@@ -53,6 +58,7 @@ try {
       ).toBe(file.sha256);
     expect(await fs.readdir(project.rootPath)).not.toContain('01_策划资料');
     await page.getByRole('button', { name: '返回继续整理' }).click();
+    await page.getByLabel('更多工具').click();
     await page.getByRole('button', { name: '体验示例', exact: true }).click();
     await expect(page.locator('.statusbar')).toContainText('20 个文件 · 2 个文件夹');
     demoChecked = true;
