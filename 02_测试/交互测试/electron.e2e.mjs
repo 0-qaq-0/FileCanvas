@@ -85,11 +85,15 @@ try {
   expect(sandbox.node).toBe('undefined');
   expect(sandbox.bridge).not.toContain('move');
   await page.getByLabel('更多工具').click();
-  await expect(page.getByRole('button', { name: /应用到硬盘/ })).toBeDisabled();
+  await expect(page.getByRole('button', { name: '撤销上次磁盘整理' })).toBeDisabled();
   await page.getByLabel('更多工具').click();
-  pass('Electron 正常启动；渲染进程无 require；真实应用按钮禁用');
+  pass('Electron 正常启动；渲染进程无 require；无操作记录时磁盘撤销禁用');
   const source = (name) => page.locator(`[data-testid="source-row"][data-name="${name}"]`);
   const card = (name) => page.locator(`[data-testid="canvas-card"][data-name="${name}"]`);
+  const enterFolder = async (name) => {
+    if ((await card(name).getAttribute('data-expanded')) !== 'true') await card(name).click();
+    await page.getByRole('button', { name: '单独查看 ' + name, exact: true }).click();
+  };
   const canvas = page.getByTestId('canvas');
   await source('子目录').getByRole('button', { name: '展开或折叠' }).click();
   await expect(source('代码.py')).toBeVisible();
@@ -142,7 +146,7 @@ try {
   await page.mouse.move(to.x + 60, to.y + 60, { steps: 20 });
   await page.mouse.up();
   await expect(card('A.jpg')).toHaveCount(0);
-  await card('图片').dblclick();
+  await enterFolder('图片');
   await expect(card('A.jpg')).toBeVisible();
   for (let i = 0; i < 8; i++) {
     const r = await card('A.jpg').boundingBox();
@@ -154,7 +158,7 @@ try {
   const inside = await coordinates('A.jpg');
   await page.getByRole('button', { name: '返回上一级', exact: true }).click();
   expect(await coordinates('B.jpg')).toEqual(b1);
-  await card('图片').dblclick();
+  await enterFolder('图片');
   expect(await coordinates('A.jpg')).toEqual(inside);
   await page.getByRole('button', { name: /预览变更/ }).click();
   const preview = page.getByRole('dialog', { name: '预览整理结果' });
@@ -220,7 +224,7 @@ try {
   [desktop, page] = await launch();
   await expect(page.locator('.statusbar')).toContainText('10 个文件');
   expect(await coordinates('B.jpg')).toEqual(b1);
-  await card('图片').dblclick();
+  await enterFolder('图片');
   expect(await coordinates('A.jpg')).toEqual(inside);
   expect(await fingerprint()).toEqual(before);
   pass(

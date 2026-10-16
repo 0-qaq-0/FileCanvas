@@ -200,8 +200,9 @@ export async function generatePreview(root: string, project: Project): Promise<P
         const current = await readEntry(root, source);
         if (
           current.kind !== node.kind ||
-          current.size !== node.source!.size ||
-          Math.abs(current.mtimeMs - node.source!.mtimeMs) > 1
+          (node.kind === 'file' &&
+            (current.size !== node.source!.size ||
+              Math.abs(current.mtimeMs - node.source!.mtimeMs) > 1))
         )
           issues.push('源文件在加入画布后发生变化，请重新核对或新建项目。');
       } catch (error) {
@@ -213,7 +214,7 @@ export async function generatePreview(root: string, project: Project): Promise<P
         await fs.lstat(target);
         // Case-only rename is still shown, but is not a collision with itself.
         if (!source || source.toLowerCase() !== target.toLowerCase())
-          issues.push('目标已存在：阶段一不推测移动顺序，也不允许覆盖。');
+          issues.push('目标已存在：请先处理同名文件，再执行移动。');
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== 'ENOENT')
           issues.push(`目标检查失败：${readableError(error)}`);

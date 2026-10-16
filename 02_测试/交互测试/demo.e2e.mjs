@@ -90,7 +90,8 @@ try {
   await page.keyboard.press('Control+y');
   await expect(page.locator('.statusbar')).toContainText('20 个文件 · 6 个文件夹');
   pass('分类理由可见，采用草案只改虚拟结构，整份草案一步撤销/重做');
-  await card('02_创作素材').dblclick();
+  await card('02_创作素材').click();
+  await page.getByRole('button', { name: '单独查看 02_创作素材', exact: true }).click();
   await card('封面草稿.png').click();
   await expect(page.getByTestId('path-inspector')).toContainText('02_创作素材/封面草稿.png');
   await expect(page.getByTestId('path-inspector')).toContainText('尚未执行');

@@ -16,6 +16,7 @@ export interface CanvasNode {
   source: SourceEntry | null;
   x: number;
   y: number;
+  reviewDelete?: boolean;
 }
 export type NodeMap = Record<string, CanvasNode>;
 export interface Project {
@@ -26,7 +27,7 @@ export interface Project {
   nodes: NodeMap;
   createdAt: string;
   updatedAt: string;
-  demo?: { scenario: 'content-project'; fixtureVersion: 1 };
+  demo?: { scenario: 'content-project' | 'expanded-flow'; fixtureVersion: 1 };
 }
 export interface Snapshot {
   nodes: NodeMap;
@@ -106,7 +107,32 @@ export interface AiReply {
   answer: string;
   groups: AiGroup[];
 }
+export interface FileAdvice {
+  purpose: string;
+  contents: string[];
+  projectRole: string;
+  action: 'keep' | 'move' | 'archive' | 'review-delete';
+  destinationId: string | null;
+  newFolder: string | null;
+  reason: string;
+  sources: ContextSource[];
+  readBody: boolean;
+}
+export interface FileAiAccess {
+  enabled: boolean;
+  baseUrl: string;
+  model: string;
+}
 export interface FileCanvasApi {
+  applyChanges(
+    project: Project,
+  ): Promise<ApiResult<{ project: Project; moved: number; message: string }>>;
+  undoDisk(projectId: string): Promise<ApiResult<Project>>;
+  diskUndoAvailable(projectId: string): Promise<ApiResult<boolean>>;
+  openFile(path: string): Promise<ApiResult<{ path: string; opened: boolean; method: string }>>;
+  fileAiAccess(enabled?: boolean): Promise<ApiResult<FileAiAccess>>;
+  explainFile(project: Project, id: string, refresh?: boolean): Promise<ApiResult<FileAdvice>>;
+  followupFile(project: Project, id: string, question: string): Promise<ApiResult<string>>;
   readContent(path: string): Promise<ApiResult<FileContent>>;
   aiSettings(): Promise<ApiResult<AiSettings>>;
   saveAiSettings(settings: {

@@ -1,6 +1,15 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type { FileCanvasApi } from '../src/domain/types';
 const api: FileCanvasApi = {
+  applyChanges: (project) => ipcRenderer.invoke('fc:apply', project),
+  undoDisk: (projectId) => ipcRenderer.invoke('fc:undo-disk', projectId),
+  diskUndoAvailable: (projectId) => ipcRenderer.invoke('fc:disk-undo-available', projectId),
+  openFile: (path) => ipcRenderer.invoke('fc:open-file', path),
+  fileAiAccess: (enabled) => ipcRenderer.invoke('fc:file-ai-access', enabled),
+  explainFile: (project, id, refresh) =>
+    ipcRenderer.invoke('fc:file-explain', project, id, refresh),
+  followupFile: (project, id, question) =>
+    ipcRenderer.invoke('fc:file-followup', project, id, question),
   readContent: (path) => ipcRenderer.invoke('fc:content', path),
   aiSettings: () => ipcRenderer.invoke('fc:ai-settings'),
   saveAiSettings: (settings) => ipcRenderer.invoke('fc:ai-save', settings),
