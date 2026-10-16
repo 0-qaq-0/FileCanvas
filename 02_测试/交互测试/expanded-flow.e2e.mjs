@@ -189,8 +189,8 @@ try {
     '点击文件自动解释、项目证据、突出推荐、目标高亮、继续追问、采用建议及外部打开接口通过；模型为本机模拟服务',
   );
   await page.getByRole('button', { name: '收起内容预览' }).click();
-  await page.getByRole('button', { name: /预览变更/ }).click();
-  await page.getByRole('button', { name: '确认并移动文件' }).click();
+  await page.getByRole('button', { name: /检查并应用/ }).click();
+  await page.getByRole('button', { name: '应用到本地文件' }).click();
   await expect(page.getByRole('dialog')).toHaveCount(0);
   expect(digest(await fs.readFile(path.join(root, '已分类', '拍摄方案.md')))).toBe(
     digest(original),
@@ -198,7 +198,8 @@ try {
   await expect(fs.stat(path.join(root, '待整理', '拍摄方案.md'))).rejects.toMatchObject({
     code: 'ENOENT',
   });
-  await page.getByRole('button', { name: '撤销这次实际移动', exact: true }).click();
+  await page.getByRole('button', { name: '恢复上次文件移动', exact: true }).click();
+  await page.getByRole('button', { name: '恢复文件原位置', exact: true }).click();
   await expect
     .poll(async () => {
       try {

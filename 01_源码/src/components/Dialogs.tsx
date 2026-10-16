@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useEffect, useRef } from 'react';
 import {
   X,
   AlertTriangle,
@@ -26,6 +26,16 @@ export function Modal({
   onClose(): void;
   wide?: boolean;
 }) {
+  const section = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const previous = document.activeElement as HTMLElement | null;
+    const target =
+      section.current?.querySelector<HTMLElement>(
+        'input:not([disabled]), textarea:not([disabled])',
+      ) ?? section.current?.querySelector<HTMLElement>('button:not([disabled])');
+    target?.focus();
+    return () => previous?.focus();
+  }, []);
   return (
     <div
       className="modal-backdrop"
@@ -37,6 +47,25 @@ export function Modal({
       }}
     >
       <section
+        ref={section}
+        onKeyDown={(event) => {
+          if (event.key !== 'Tab') return;
+          const targets = Array.from(
+            section.current?.querySelectorAll<HTMLElement>(
+              'button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex="0"]',
+            ) ?? [],
+          ).filter((el) => el.offsetParent !== null);
+          if (!targets.length) return;
+          const first = targets[0],
+            last = targets.at(-1)!;
+          if (event.shiftKey && document.activeElement === first) {
+            event.preventDefault();
+            last.focus();
+          } else if (!event.shiftKey && document.activeElement === last) {
+            event.preventDefault();
+            first.focus();
+          }
+        }}
         role="dialog"
         aria-modal="true"
         aria-label={title}
@@ -73,6 +102,7 @@ export function PreviewDialog({
   onExport,
   onReveal,
   onApply,
+  errorMessage,
 }: {
   preview: Preview;
   showUnchanged: boolean;
@@ -83,6 +113,7 @@ export function PreviewDialog({
   onExport(): void;
   onReveal(): void;
   onApply?(): void;
+  errorMessage?: string;
 }) {
   const [view, setView] = useState<'changes' | 'structure'>('changes');
   const trees = useMemo(() => planTrees(preview, rootPath), [preview, rootPath]);
@@ -93,7 +124,7 @@ export function PreviewDialog({
     <Modal
       wide
       title="预览整理结果"
-      subtitle="拖动只形成计划。核对后点击“确认并移动”才会实际修改文件位置。"
+      subtitle="核对这份计划后应用到本地。执行前再次检查，完成后重新扫描并验证结果。"
       onClose={onClose}
     >
       <div className="preview-summary">
@@ -114,6 +145,19 @@ export function PreviewDialog({
           确认后才执行
         </span>
       </div>
+      <div className="preview-root">
+        <span>本次整理目录</span>
+        <code>{rootPath}</code>
+        <small>
+          未加入画布的 {preview.preserved ?? '其他'} 个条目保留；原有未改动的空目录保留。每次最多
+          100 个文件。
+        </small>
+      </div>
+      {errorMessage && (
+        <p className="operation-error" role="alert">
+          {errorMessage}
+        </p>
+      )}
       <div className="preview-filter">
         <div className="view-tabs">
           <button className={view === 'changes' ? 'active' : ''} onClick={() => setView('changes')}>
@@ -203,21 +247,21 @@ export function PreviewDialog({
         </div>
       )}
       <footer className="modal-footer">
-        <span>普通文件移动 · 不覆盖同名文件 · 可撤销上次磁盘整理</span>
+        <span>本地同卷文件与文件夹 · 不覆盖 · 可恢复最近一次</span>
         <button className="button" onClick={onExport}>
           <Download size={15} />
           导出整理方案
         </button>
-        <button className="button primary" onClick={onClose}>
+        <button className="button" onClick={onClose}>
           返回继续整理
         </button>
         {onApply && (
           <button
             className="button primary"
-            disabled={!preview.changed || !!preview.issues}
+            disabled={!preview.changed || !!preview.issues || !preview.planId}
             onClick={onApply}
           >
-            确认并移动文件
+            应用到本地文件
           </button>
         )}
       </footer>

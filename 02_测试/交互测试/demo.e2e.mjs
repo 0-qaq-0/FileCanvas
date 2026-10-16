@@ -96,7 +96,7 @@ try {
   await expect(page.getByTestId('path-inspector')).toContainText('02_创作素材/封面草稿.png');
   await expect(page.getByTestId('path-inspector')).toContainText('尚未执行');
   await page.getByRole('button', { name: '返回上一级', exact: true }).click();
-  await page.getByRole('button', { name: /预览变更/ }).click();
+  await page.getByRole('button', { name: /检查并应用/ }).click();
   await page.getByRole('button', { name: '结构对照', exact: true }).click();
   await expect(page.getByTestId('before-tree')).not.toContainText('02_创作素材');
   await expect(page.getByTestId('after-tree')).toContainText('02_创作素材');

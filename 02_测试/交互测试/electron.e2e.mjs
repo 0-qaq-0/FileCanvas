@@ -85,7 +85,7 @@ try {
   expect(sandbox.node).toBe('undefined');
   expect(sandbox.bridge).not.toContain('move');
   await page.getByLabel('更多工具').click();
-  await expect(page.getByRole('button', { name: '撤销上次磁盘整理' })).toBeDisabled();
+  await expect(page.getByRole('button', { name: '恢复上次文件移动' })).toBeDisabled();
   await page.getByLabel('更多工具').click();
   pass('Electron 正常启动；渲染进程无 require；无操作记录时磁盘撤销禁用');
   const source = (name) => page.locator(`[data-testid="source-row"][data-name="${name}"]`);
@@ -160,7 +160,7 @@ try {
   expect(await coordinates('B.jpg')).toEqual(b1);
   await enterFolder('图片');
   expect(await coordinates('A.jpg')).toEqual(inside);
-  await page.getByRole('button', { name: /预览变更/ }).click();
+  await page.getByRole('button', { name: /检查并应用/ }).click();
   const preview = page.getByRole('dialog', { name: '预览整理结果' });
   await expect(preview).toContainText(path.join(root, 'A.jpg'));
   await expect(preview).toContainText(path.join(root, '图片', 'A.jpg'));
@@ -233,11 +233,11 @@ try {
   // These fixture modifications deliberately model changes made outside FileCanvas.
   await fs.mkdir(path.join(root, '图片'));
   await fs.writeFile(path.join(root, '图片', 'A.jpg'), 'external collision');
-  await page.getByRole('button', { name: /预览变更/ }).click();
+  await page.getByRole('button', { name: /检查并应用/ }).click();
   await expect(page.getByRole('dialog', { name: '预览整理结果' })).toContainText('目标已存在');
   await page.getByRole('button', { name: '返回继续整理' }).click();
   await fs.unlink(path.join(root, 'A.jpg'));
-  await page.getByRole('button', { name: /预览变更/ }).click();
+  await page.getByRole('button', { name: /检查并应用/ }).click();
   await expect(page.getByRole('dialog', { name: '预览整理结果' })).toContainText('源文件不可用');
   await page.getByRole('button', { name: '返回继续整理' }).click();
   pass('D：预览重新检查外部目标冲突与被删除的源文件');

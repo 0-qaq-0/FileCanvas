@@ -1,6 +1,6 @@
 {
   "name": "filecanvas",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "description": "先在画布中整理，再预览真实路径的 Windows 文件整理工具",
   "main": "06_构建产物/electron/main.cjs",
@@ -17,7 +17,8 @@
     "package:dir": "npm run build && electron-builder --win --x64 --dir",
     "test:demo": "npm run build && node 02_测试/交互测试/demo.e2e.mjs",
     "test:ai": "npm run build && node 02_测试/交互测试/canvas-ai.e2e.mjs",
-    "test:expanded": "node 02_测试/交互测试/expanded-flow.e2e.mjs"
+    "test:expanded": "node 02_测试/交互测试/expanded-flow.e2e.mjs",
+    "source:zip": "node 04_构建脚本/package-source.mjs"
   },
   "dependencies": {
     "lucide-react": "^0.468.0",

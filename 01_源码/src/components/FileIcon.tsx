@@ -4,6 +4,7 @@ import {
   FileText,
   Film,
   Folder,
+  FolderOpen,
   Music,
   Archive,
   FileCode2,
@@ -14,14 +15,18 @@ export function FileIcon({
   name,
   folder = false,
   size = 32,
+  open = false,
 }: {
   name: string;
   folder?: boolean;
   size?: number;
+  open?: boolean;
 }) {
   const extension = name.split('.').at(-1)?.toLowerCase() ?? '';
   const Icon = folder
-    ? Folder
+    ? open
+      ? FolderOpen
+      : Folder
     : /^(png|jpe?g|gif|webp|svg|bmp|heic)$/.test(extension)
       ? FileImage
       : /^(mp4|mov|avi|mkv)$/.test(extension)
@@ -39,27 +44,33 @@ export function FileIcon({
                   : /^(pdf|docx?|txt|md|xlsx?|pptx?)$/.test(extension)
                     ? FileText
                     : File;
-  const color = folder
-    ? 'folder'
-    : Icon === FileImage
-      ? 'image'
-      : Icon === Film
-        ? 'video'
-        : Icon === FileText
-          ? 'document'
-          : Icon === FileSpreadsheet
-            ? 'spreadsheet'
-            : Icon === Presentation
-              ? 'presentation'
-              : Icon === Music
-                ? 'audio'
-                : Icon === Archive
-                  ? 'archive'
-                  : Icon === FileCode2
-                    ? 'code'
-                    : 'generic';
+  const color =
+    !folder && extension === 'pdf'
+      ? 'pdf'
+      : folder
+        ? 'folder'
+        : Icon === FileImage
+          ? 'image'
+          : Icon === Film
+            ? 'video'
+            : Icon === FileText
+              ? 'document'
+              : Icon === FileSpreadsheet
+                ? 'spreadsheet'
+                : Icon === Presentation
+                  ? 'presentation'
+                  : Icon === Music
+                    ? 'audio'
+                    : Icon === Archive
+                      ? 'archive'
+                      : Icon === FileCode2
+                        ? 'code'
+                        : 'generic';
   return (
-    <span className={`file-icon ${color}`}>
+    <span
+      className={`file-icon ${color}`}
+      title={folder ? '文件夹' : extension ? `${extension.toUpperCase()} 文件` : '文件'}
+    >
       <Icon
         size={size}
         strokeWidth={1.55}

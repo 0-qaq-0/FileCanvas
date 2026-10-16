@@ -27,6 +27,7 @@ import { AiService } from './ai';
 import { readContent } from './content';
 import { DiskOperations } from './disk-operations';
 import { createFlowDemo } from './flow-demo';
+import { prepareRefresh } from './refresh';
 
 let mainWindow: BrowserWindow;
 let activeRoot: string | null = null;
@@ -93,13 +94,19 @@ function root(): string {
   return activeRoot;
 }
 async function activate(project: Project): Promise<Project> {
+  if (fileOperation || disk.isBusy()) throw new Error('文件整理进行中，请完成后再切换项目。');
   // Root can disappear after saving; the user still needs to inspect the virtual plan.
   validateAuthorized(project, project.rootPath);
   if (inside(project.rootPath, app.getPath('userData')))
     throw new Error('请选择更具体的文件夹，项目根目录不能包含 FileCanvas 自身的数据目录。');
   activeRoot = project.rootPath;
   ai.reset(activeRoot);
-  return project;
+  const reconciled = await disk.reconcile(project);
+  if (reconciled !== project) {
+    await storage.save(reconciled);
+    await disk.acknowledge(activeRoot, project.id);
+  }
+  return reconciled;
 }
 app.whenReady().then(async () => {
   if (!hasInstanceLock) return;
@@ -118,7 +125,10 @@ app.whenReady().then(async () => {
       if (!['ENOENT', 'EEXIST'].includes((error as NodeJS.ErrnoException).code ?? '')) throw error;
     }
   }
-  disk = new DiskOperations(path.join(app.getPath('userData'), 'operations'));
+  disk = new DiskOperations(path.join(app.getPath('userData'), 'operations'), (progress) => {
+    if (mainWindow && !mainWindow.isDestroyed())
+      mainWindow.webContents.send('fc:operation-progress', progress);
+  });
   if (devUrl && !e2e && !(await storage.list()).length)
     await storage.save(await createFlowDemo(app.getPath('userData')));
   ai = new AiService(app.getPath('userData'), {
@@ -153,6 +163,7 @@ app.whenReady().then(async () => {
     callback(false),
   );
   handle('fc:open-root', async () => {
+    if (fileOperation) throw new Error('文件整理进行中，请完成后再切换目录。');
     let chosen: string | undefined;
     if (e2e && process.env.FILECANVAS_TEST_ROOT) {
       chosen = path.resolve(process.env.FILECANVAS_TEST_ROOT);
@@ -160,7 +171,7 @@ app.whenReady().then(async () => {
         throw new Error('测试根目录不合法。');
     } else {
       const result = await dialog.showOpenDialog(mainWindow, {
-        title: '选择要虚拟整理的文件夹（阶段一只读）',
+        title: '选择要整理的本地文件夹',
         properties: ['openDirectory'],
       });
       chosen = result.canceled ? undefined : result.filePaths[0];
@@ -241,16 +252,23 @@ app.whenReady().then(async () => {
     const project = await storage.last();
     return project ? activate(project) : null;
   });
-  handle('fc:preview', (project) => generatePreview(root(), project));
+  handle('fc:preview', (project) => disk.preview(root(), project));
+  handle('fc:refresh', (project) => prepareRefresh(root(), project));
+  handle('fc:operation-status', (projectId) => disk.status(root(), projectId));
   handle('fc:disk-undo-available', (projectId) => disk.available(root(), projectId));
-  handle('fc:apply', (project: Project) =>
+  handle('fc:apply', (project: Project, planId: string) =>
     diskTask(async () => {
+      if (typeof planId !== 'string' || !planId) throw new Error('请先检查整理计划再确认应用。');
+      const operationRoot = root();
       await storage.flush();
-      const result = await disk.apply(root(), project);
+      const result = await disk.apply(operationRoot, project, planId);
       try {
         await storage.save(result.project);
+        await disk.acknowledge(operationRoot, project.id);
       } catch {
-        throw new Error('文件已经移动，但项目记录保存失败。请使用“撤销上次磁盘整理”恢复原路径。');
+        throw new Error(
+          '文件已移动并核验，但项目记录保存未完成。重新打开项目会从操作日志补回记录；也可恢复上次文件移动。',
+        );
       }
       ai.invalidate(root());
       return result;
@@ -261,11 +279,13 @@ app.whenReady().then(async () => {
       await storage.flush();
       const project = await disk.undo(root(), projectId);
       await storage.save(project);
+      await disk.acknowledge(root(), projectId);
       ai.invalidate(root());
       return project;
     }),
   );
   handle('fc:open-demo', async () => {
+    if (fileOperation) throw new Error('请等待文件整理完成。');
     const owner = app.getPath('userData');
     const runDirectory = path.join(owner, 'demo-runs', randomUUID());
     await noLinks(owner, path.dirname(runDirectory));
@@ -293,7 +313,7 @@ app.whenReady().then(async () => {
     return activate(populated);
   });
   handle('fc:export-plan', async (project: Project) => {
-    const preview = await generatePreview(root(), project);
+    const preview = await disk.preview(root(), project);
     const directory = path.join(app.getPath('userData'), 'exports');
     await noLinks(app.getPath('userData'), directory);
     await fs.mkdir(directory, { recursive: true });

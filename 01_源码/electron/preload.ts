@@ -1,7 +1,15 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type { FileCanvasApi } from '../src/domain/types';
 const api: FileCanvasApi = {
-  applyChanges: (project) => ipcRenderer.invoke('fc:apply', project),
+  applyChanges: (project, planId) => ipcRenderer.invoke('fc:apply', project, planId),
+  operationStatus: (projectId) => ipcRenderer.invoke('fc:operation-status', projectId),
+  prepareRefresh: (project) => ipcRenderer.invoke('fc:refresh', project),
+  onOperationProgress: (callback) => {
+    const listener = (_event: unknown, progress: import('../src/domain/types').OperationProgress) =>
+      callback(progress);
+    ipcRenderer.on('fc:operation-progress', listener);
+    return () => ipcRenderer.removeListener('fc:operation-progress', listener);
+  },
   undoDisk: (projectId) => ipcRenderer.invoke('fc:undo-disk', projectId),
   diskUndoAvailable: (projectId) => ipcRenderer.invoke('fc:disk-undo-available', projectId),
   openFile: (path) => ipcRenderer.invoke('fc:open-file', path),
