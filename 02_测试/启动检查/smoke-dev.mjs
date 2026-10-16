@@ -33,6 +33,12 @@ try {
   const flowPage = await app.firstWindow();
   flowPage.on('pageerror', (e) => errors.push(e.message));
   await expect(flowPage.locator('.breadcrumb')).toContainText('6 文件试用');
+  expect(
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isVisible()),
+  ).toBe(true);
+  expect(
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getTitle()),
+  ).toContain('开发体验');
   await expect(flowPage.locator('.statusbar')).toContainText('6 个文件');
   await expect(flowPage.locator('[data-name="待整理"]')).toHaveAttribute('data-expanded', 'true');
   await expect(flowPage.locator('[data-name="已分类"]')).toHaveAttribute('data-expanded', 'true');
