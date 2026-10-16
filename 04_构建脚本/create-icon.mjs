@@ -1,6 +1,6 @@
 // Original code-drawn artwork; no external resources.
 import fs from 'node:fs/promises';
-await fs.mkdir('assets', { recursive: true });
+await fs.mkdir('01_源码/assets', { recursive: true });
 const sizes = [32, 48, 64, 128, 256];
 function rounded(x, y, left, top, width, height, radius) {
   if (x < left || x > left + width || y < top || y > top + height) return false;
@@ -63,4 +63,4 @@ sizes.forEach((size, index) => {
   header.writeUInt32LE(offset, start + 12);
   offset += images[index].length;
 });
-await fs.writeFile('assets/icon.ico', Buffer.concat([header, ...images]));
+await fs.writeFile('01_源码/assets/icon.ico', Buffer.concat([header, ...images]));

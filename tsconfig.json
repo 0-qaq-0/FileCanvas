@@ -12,5 +12,11 @@
     "resolveJsonModule": true,
     "types": ["node"]
   },
-  "include": ["src", "electron", "tests/**/*.ts", "vite.config.ts"]
+  "include": [
+    "01_源码/src",
+    "01_源码/electron",
+    "02_测试/**/*.ts",
+    "vite.config.ts",
+    "vitest.config.ts"
+  ]
 }

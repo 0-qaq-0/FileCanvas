@@ -11,15 +11,15 @@ import {
   listDirectory,
   readableError,
   searchFiles,
-} from '../electron/filesystem';
-import { ProjectStorage } from '../electron/storage';
+} from '../../01_源码/electron/filesystem';
+import { ProjectStorage } from '../../01_源码/electron/storage';
 import {
   addFolder,
   importEntries,
   moveNodes,
   renameNode,
   workspace,
-} from '../src/domain/workspace';
+} from '../../01_源码/src/domain/workspace';
 
 let root: string;
 let appData: string;

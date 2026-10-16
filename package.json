@@ -3,16 +3,16 @@
   "version": "0.1.0",
   "private": true,
   "description": "先在画布中整理，再预览真实路径的 Windows 文件整理工具",
-  "main": "dist-electron/main.cjs",
+  "main": "06_构建产物/electron/main.cjs",
   "author": "FileCanvas",
   "license": "UNLICENSED",
   "scripts": {
-    "dev": "node scripts/dev.mjs",
-    "build": "tsc --noEmit && vite build && node scripts/build-electron.mjs",
+    "dev": "node 04_构建脚本/dev.mjs",
+    "build": "tsc --noEmit && vite build && node 04_构建脚本/build-electron.mjs",
     "start": "electron .",
     "test": "vitest run",
-    "test:e2e": "npm run build && node tests/electron.e2e.mjs",
-    "format": "prettier --write src electron tests scripts vite.config.ts tsconfig.json package.json README.md docs",
+    "test:e2e": "npm run build && node 02_测试/交互测试/electron.e2e.mjs",
+    "format": "prettier --write 01_源码 02_测试 04_构建脚本 vite.config.ts vitest.config.ts tsconfig.json package.json README.md 05_项目文档",
     "package:win": "npm run build && electron-builder --win portable --x64",
     "package:dir": "npm run build && electron-builder --win --x64 --dir"
   },
@@ -39,18 +39,17 @@
     "appId": "cn.filecanvas.desktop",
     "productName": "FileCanvas",
     "directories": {
-      "output": "release"
+      "output": "07_发布成品"
     },
     "files": [
-      "dist/**/*",
-      "dist-electron/**/*",
-      "assets/icon.ico",
+      "06_构建产物/**/*",
+      "01_源码/assets/icon.ico",
       "package.json"
     ],
     "asar": true,
     "win": {
       "target": "portable",
-      "icon": "assets/icon.ico",
+      "icon": "01_源码/assets/icon.ico",
       "artifactName": "FileCanvas-${version}-Windows-${arch}.${ext}"
     }
   }

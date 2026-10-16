@@ -1,5 +1,5 @@
 $ErrorActionPreference = 'Stop'
-$portablePath = Join-Path $PSScriptRoot '..\release\FileCanvas-0.1.0-Windows-x64.exe'
+$portablePath = Join-Path $PSScriptRoot '..\..\07_发布成品\FileCanvas-0.1.0-Windows-x64.exe'
 $portablePath = [System.IO.Path]::GetFullPath($portablePath)
 $results = @()
 foreach ($waitForPage in @($false, $true)) {
@@ -28,6 +28,6 @@ $report = [ordered]@{
     sha256 = (Get-FileHash -LiteralPath $portablePath -Algorithm SHA256).Hash
     signature = (Get-AuthenticodeSignature -LiteralPath $portablePath).Status.ToString()
 }
-$outputPath = Join-Path $PSScriptRoot '..\test-results\portable-smoke.json'
+$outputPath = Join-Path $PSScriptRoot '..\..\03_测试结果\portable-smoke.json'
 $report | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $outputPath -Encoding utf8
 $report | ConvertTo-Json -Depth 5
