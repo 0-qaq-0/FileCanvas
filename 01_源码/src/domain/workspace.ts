@@ -88,6 +88,22 @@ export function validateProject(project: Project): void {
   )
     throw new Error('不是有效的 FileCanvas 项目。');
   validateNodes(project.nodes);
+  if (project.view) {
+    const view = project.view;
+    if (
+      typeof view !== 'object' ||
+      (view.expandedIds !== undefined &&
+        (!Array.isArray(view.expandedIds) ||
+          view.expandedIds.length > MAX_NODES ||
+          view.expandedIds.some((id) => typeof id !== 'string'))) ||
+      (view.parentId !== undefined &&
+        view.parentId !== null &&
+        typeof view.parentId !== 'string') ||
+      (view.showBrowser !== undefined && typeof view.showBrowser !== 'boolean') ||
+      (view.focused !== undefined && typeof view.focused !== 'boolean')
+    )
+      throw new Error('项目视图设置无效。');
+  }
 }
 export function workspace(project: Project): Workspace {
   return { project, past: [], future: [] };

@@ -2,6 +2,8 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { validateProject } from '../src/domain/workspace';
 import type { Project, ProjectRecord } from '../src/domain/types';
+import { writeAtomic } from './operation-plan';
+import { noLinks } from './filesystem';
 
 export class ProjectStorage {
   private queue: Promise<unknown> = Promise.resolve();
@@ -18,9 +20,12 @@ export class ProjectStorage {
       .catch(() => {})
       .then(async () => {
         await fs.mkdir(this.directory, { recursive: true });
-        await fs.writeFile(`${filename}.tmp`, snapshot, 'utf8');
-        await fs.rename(`${filename}.tmp`, filename);
-        await fs.writeFile(path.join(this.directory, 'last-project'), project.id, 'utf8');
+        await noLinks(this.directory, this.directory);
+        await writeAtomic(filename, JSON.parse(snapshot));
+        await writeAtomic(path.join(this.directory, 'last-project.json'), {
+          version: 1,
+          id: project.id,
+        });
         return filename;
       });
     this.queue = pending;
@@ -28,6 +33,7 @@ export class ProjectStorage {
   }
   async load(id: string): Promise<Project> {
     const file = this.filename(id);
+    await noLinks(this.directory, file);
     const stat = await fs.stat(file);
     if (stat.size > 12 * 1024 * 1024) throw new Error('项目文件过大。');
     const project = JSON.parse(await fs.readFile(file, 'utf8')) as Project;
@@ -51,6 +57,16 @@ export class ProjectStorage {
   }
   async last(): Promise<Project | null> {
     try {
+      const pointer = path.join(this.directory, 'last-project.json');
+      await noLinks(this.directory, pointer);
+      try {
+        const saved = JSON.parse(await fs.readFile(pointer, 'utf8'));
+        if (saved.version !== 1 || typeof saved.id !== 'string')
+          throw new Error('最近项目记录无效。');
+        return await this.load(saved.id);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+      }
       return await this.load(
         (await fs.readFile(path.join(this.directory, 'last-project'), 'utf8')).trim(),
       );

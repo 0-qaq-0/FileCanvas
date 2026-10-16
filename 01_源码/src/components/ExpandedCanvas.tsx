@@ -16,6 +16,9 @@ import { children, relativeTarget, topLevelSelection, isDescendant } from '../do
 import { expandedLayout, folderAt } from '../domain/canvas-layout';
 import { FileIcon, formatSize } from './FileIcon';
 interface Props {
+  rootPath: string;
+  initialExpanded?: string[];
+  onExpandedChange?(ids: string[]): void;
   autoExpand?: boolean;
   nodes: NodeMap;
   parentId: string | null;
@@ -53,7 +56,15 @@ function CardVisual({ node }: { node: CanvasNode }) {
   }, [node.id, node.source?.path, node.source?.mtimeMs]);
   if (node.kind === 'folder') return <FileIcon name={node.name} folder size={42} />;
   if (content?.kind === 'image')
-    return <img className="card-thumbnail" src={content.dataUrl} alt="" draggable={false} />;
+    return (
+      <img
+        className="card-thumbnail"
+        src={content.dataUrl}
+        alt=""
+        draggable={false}
+        onError={() => setContent({ kind: 'unsupported' })}
+      />
+    );
   if (content?.kind === 'text' && content.text)
     return (
       <div className="card-document">
@@ -84,11 +95,12 @@ export function Canvas(props: Props) {
     hoverId = useRef<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(
       new Set(
-        props.autoExpand
-          ? children(nodes, parentId)
-              .filter((n) => n.kind === 'folder')
-              .map((n) => n.id)
-          : [],
+        props.initialExpanded ??
+          (props.autoExpand
+            ? children(nodes, parentId)
+                .filter((n) => n.kind === 'folder')
+                .map((n) => n.id)
+            : []),
       ),
     ),
     [draft, setDraft] = useState<Record<string, { x: number; y: number }>>({});
@@ -96,6 +108,15 @@ export function Canvas(props: Props) {
     [hover, setHover] = useState<string | null | undefined>(undefined),
     [dragOver, setDragOver] = useState(false);
   const [viewport, setViewport] = useState({ x: 0, y: 0, width: 1000, height: 700 });
+  useEffect(() => {
+    props.onExpandedChange?.([...expanded].filter((id) => nodes[id]?.kind === 'folder'));
+  }, [expanded]);
+  function pendingLabel(node: CanvasNode) {
+    if (!node.source) return '待新建';
+    const target = `${props.rootPath.replace(/[\\/]+$/, '')}\\${relativeTarget(nodes, node.id).join('\\')}`;
+    if (target === node.source.path) return '';
+    return node.name !== node.source.name ? '待改名 / 移动' : '待移动';
+  }
   function measure() {
     const el = container.current;
     if (el)
@@ -533,11 +554,18 @@ export function Canvas(props: Props) {
                 {r.expanded ? (
                   <>
                     <div className="folder-container-heading">
-                      <button aria-label={`收起 ${node.name}`} onClick={() => toggle(node.id)}>
+                      <button
+                        aria-label={`收起 ${node.name}`}
+                        title="收起此文件夹"
+                        onClick={() => toggle(node.id)}
+                      >
                         <ChevronDown size={15} />
                       </button>
-                      <FileIcon name={node.name} folder size={19} />
+                      <FileIcon name={node.name} folder open size={19} />
                       <strong>{node.name}</strong>
+                      {pendingLabel(node) && (
+                        <span className="pending-badge">{pendingLabel(node)}</span>
+                      )}
                       <small>{children(nodes, node.id).length}</small>
                       <button title={`预览 ${node.name}`} onClick={() => props.onInspect(node.id)}>
                         <Eye size={14} />
@@ -564,6 +592,9 @@ export function Canvas(props: Props) {
                           ? '点击展开'
                           : node.name.split('.').at(-1)?.toUpperCase()}
                     </span>
+                    {pendingLabel(node) && (
+                      <span className="pending-badge card-pending">{pendingLabel(node)}</span>
+                    )}
                     <CardVisual node={node} />
                     <span className="card-name" title={node.name}>
                       {node.name}

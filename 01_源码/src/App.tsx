@@ -23,6 +23,8 @@ import {
   Maximize2,
   Minimize2,
   MoreHorizontal,
+  RefreshCw,
+  AlertTriangle,
 } from 'lucide-react';
 import type {
   ApiResult,
@@ -32,6 +34,9 @@ import type {
   ProjectRecord,
   Workspace,
   FileAdvice,
+  OperationStatus,
+  OperationProgress,
+  RefreshReview,
 } from './domain/types';
 import {
   addFolder,
@@ -53,6 +58,7 @@ import { applyFileAdvice } from './domain/file-advice';
 import { AiPanel } from './components/AiPanel';
 import { adoptAiPlan } from './domain/ai-plan';
 import { buildClassificationDraft } from './domain/drafts';
+import { RecoveryDialog, RefreshDialog } from './components/OperationDialogs';
 
 function unwrap<T>(response: ApiResult<T>): T {
   if (!response.ok) throw new Error(response.error ?? '操作失败');
@@ -70,7 +76,16 @@ export default function App() {
   const operationBusy = useRef(false);
   const [starting, setStarting] = useState(true);
   const [dialog, setDialog] = useState<
-    'create' | 'rename' | 'projects' | 'move' | 'preview' | 'help' | 'draft' | null
+    | 'create'
+    | 'rename'
+    | 'projects'
+    | 'move'
+    | 'preview'
+    | 'help'
+    | 'draft'
+    | 'recovery'
+    | 'refresh'
+    | null
   >(null);
   const [name, setName] = useState('');
   const [nameError, setNameError] = useState('');
@@ -86,17 +101,49 @@ export default function App() {
   const [focused, setFocused] = useState(false);
   const [highlighted, setHighlighted] = useState<string | null>(null);
   const [canUndoDisk, setCanUndoDisk] = useState(false);
+  const [operation, setOperation] = useState<OperationStatus | null>(null);
+  const [progress, setProgress] = useState<OperationProgress | null>(null);
+  const [problem, setProblem] = useState('');
+  const [refreshReview, setRefreshReview] = useState<RefreshReview | null>(null);
+  async function refreshOperation() {
+    const id = current.current?.project.id;
+    if (!id) return;
+    const result = await window.fileCanvas.operationStatus(id);
+    if (current.current?.project.id !== id) return;
+    if (result.ok) {
+      setOperation(result.data ?? null);
+      setCanUndoDisk(!!result.data?.canUndo);
+    } else {
+      setProblem(result.error ?? '操作记录读取失败');
+    }
+  }
+  function updateView(view: NonNullable<Project['view']>) {
+    if (!current.current) return;
+    const existing = current.current.project.view ?? {};
+    const merged = { ...existing, ...view };
+    if (JSON.stringify(existing) !== JSON.stringify(merged))
+      replace({ ...current.current, project: { ...current.current.project, view: merged } });
+  }
   function notify(message: string) {
     setToast(message);
   }
   function replace(next: Workspace) {
+    if (current.current?.project.id !== next.project.id) {
+      const view = next.project.view;
+      setShowBrowser(!!view?.showBrowser);
+      setFocused(!!view?.focused);
+      setParentId(view?.parentId && next.project.nodes[view.parentId] ? view.parentId : null);
+      setOperation(null);
+      setCanUndoDisk(false);
+      setProblem('');
+    }
     current.current = next;
     setState(next);
     if (parentId && !next.project.nodes[parentId]) setParentId(null);
     setSelected((old) => old.filter((id) => next.project.nodes[id]));
   }
   function edit(fn: (state: Workspace) => Workspace) {
-    if (!current.current) return;
+    if (!current.current || operationBusy.current) return;
     try {
       replace(fn(current.current));
     } catch (error) {
@@ -137,11 +184,14 @@ export default function App() {
     if (state) void persist(state.project).catch(() => {});
   }, [state?.project]);
   useEffect(() => {
-    if (state)
-      window.fileCanvas.diskUndoAvailable(state.project.id).then((r) => {
-        if (r.ok) setCanUndoDisk(!!r.data);
-      });
+    if (state) void refreshOperation();
   }, [state?.project.id]);
+  useEffect(() => {
+    if (window.fileCanvas) return window.fileCanvas.onOperationProgress(setProgress);
+  }, []);
+  useEffect(() => {
+    if (state) updateView({ parentId, showBrowser, focused });
+  }, [parentId, showBrowser, focused]);
   useEffect(() => {
     if (!window.fileCanvas) return;
     return window.fileCanvas.onCloseRequested(() => {
@@ -206,17 +256,17 @@ export default function App() {
     if (operationBusy.current) return;
     operationBusy.current = true;
     setBusy(true);
+    setProblem('');
     try {
       await task();
     } catch (error) {
+      setProblem((error as Error).message);
       notify((error as Error).message);
     } finally {
       setBusy(false);
       operationBusy.current = false;
-      if (current.current)
-        window.fileCanvas.diskUndoAvailable(current.current.project.id).then((r) => {
-          if (r.ok) setCanUndoDisk(!!r.data);
-        });
+      setProgress(null);
+      if (current.current) await refreshOperation();
     }
   }
   function openFolder() {
@@ -334,12 +384,28 @@ export default function App() {
   }
   function revertDisk() {
     void run(async () => {
-      const project = unwrap(await window.fileCanvas.undoDisk(current.current!.project.id));
+      const project = unwrap(
+        await window.fileCanvas.undoDisk(operation?.projectId ?? current.current!.project.id),
+      );
       replace(workspace(project));
       enter(null);
       setCanUndoDisk(false);
       setHighlighted(null);
+      setDialog(null);
       notify('已撤销上次磁盘整理，文件恢复到原位置。');
+    });
+  }
+  function checkPlan() {
+    void run(async () => {
+      setPreview(unwrap(await window.fileCanvas.preview(current.current!.project)));
+      setExportPath(null);
+      setDialog('preview');
+    });
+  }
+  function checkRefresh() {
+    void run(async () => {
+      setRefreshReview(unwrap(await window.fileCanvas.prepareRefresh(current.current!.project)));
+      setDialog('refresh');
     });
   }
   function remove() {
@@ -403,7 +469,7 @@ export default function App() {
         </button>
         <button
           className="icon-button"
-          title={`撤销 ${state?.past.at(-1)?.label ?? ''} (Ctrl+Z)`}
+          title={`撤销计划：${state?.past.at(-1)?.label ?? ''} (Ctrl+Z)，不会恢复已经移动的本地文件`}
           aria-label="撤销"
           disabled={!state?.past.length || busy}
           onClick={() => edit(undo)}
@@ -420,21 +486,15 @@ export default function App() {
           <Redo2 size={18} />
         </button>
         <button
-          className="button"
-          disabled={!state || busy}
-          onClick={() =>
-            void run(async () => {
-              setPreview(unwrap(await window.fileCanvas.preview(current.current!.project)));
-              setExportPath(null);
-              setDialog('preview');
-            })
-          }
+          className="button primary apply-entry"
+          disabled={!state || busy || !!operation?.needsRecovery}
+          onClick={checkPlan}
         >
           <ScanEye size={16} />
-          预览变更{pendingCount > 0 && <span className="count-pill">{pendingCount}</span>}
+          检查并应用{pendingCount > 0 && <span className="count-pill">{pendingCount}</span>}
         </button>
         <button
-          className="button primary"
+          className="button"
           disabled={!state}
           aria-pressed={showAi}
           onClick={() => {
@@ -455,6 +515,14 @@ export default function App() {
             <MoreHorizontal size={20} />
           </summary>
           <div className="more-menu">
+            <button
+              className="button"
+              disabled={!state || busy || !!operation?.needsRecovery}
+              onClick={checkRefresh}
+            >
+              <RefreshCw size={16} />
+              刷新并核对
+            </button>
             <button
               className="button"
               disabled={!state || busy}
@@ -501,21 +569,10 @@ export default function App() {
             <button
               className="button"
               disabled={!state || busy || !canUndoDisk}
-              onClick={() =>
-                void run(async () => {
-                  const project = unwrap(
-                    await window.fileCanvas.undoDisk(current.current!.project.id),
-                  );
-                  replace(workspace(project));
-                  enter(null);
-                  setCanUndoDisk(false);
-                  setHighlighted(null);
-                  notify('已撤销上次磁盘整理，文件恢复到原位置。');
-                })
-              }
+              onClick={() => setDialog('recovery')}
             >
               <ShieldCheck size={16} />
-              撤销上次磁盘整理
+              恢复上次文件移动
             </button>
             <button className="button" onClick={() => setDialog('help')}>
               <Info size={16} />
@@ -575,12 +632,16 @@ export default function App() {
               </div>
               <span className="canvas-safe">
                 <ShieldCheck size={13} />
-                拖动先预演 · 确认后移动
+                整理计划 · 确认后应用
               </span>
               {canUndoDisk && (
-                <button className="button small" disabled={busy} onClick={revertDisk}>
+                <button
+                  className="button small"
+                  disabled={busy}
+                  onClick={() => setDialog('recovery')}
+                >
                   <Undo2 size={14} />
-                  撤销这次实际移动
+                  恢复上次文件移动
                 </button>
               )}
               <button className="button small" onClick={() => setDialog('draft')} disabled={busy}>
@@ -595,6 +656,46 @@ export default function App() {
                 {focused ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
                 {focused ? '退出专注' : '专注画布'}
               </button>
+            </div>
+            <div
+              className={`operation-notice ${operation?.needsRecovery || problem ? 'has-problem' : ''}`}
+              data-testid="operation-notice"
+              aria-live="polite"
+            >
+              {operation?.needsRecovery || problem ? (
+                <AlertTriangle size={17} />
+              ) : (
+                <ShieldCheck size={17} />
+              )}
+              <div>
+                <strong>
+                  {operation?.needsRecovery
+                    ? '上次整理需要恢复'
+                    : pendingCount
+                      ? `尚未应用 · ${pendingCount} 项变化`
+                      : operation?.status === 'applied'
+                        ? '已应用并核验'
+                        : '当前路径与本地一致'}
+                </strong>
+                <span>
+                  {problem ||
+                    (operation?.needsRecovery
+                      ? operation.message
+                      : pendingCount
+                        ? '画布已保存；本地文件尚未移动。'
+                        : '可继续整理，或刷新核对外部变化。')}
+                </span>
+              </div>
+              {operation?.needsRecovery ? (
+                <button className="button small" onClick={() => setDialog('recovery')}>
+                  处理恢复任务
+                </button>
+              ) : (
+                <button className="button small" disabled={busy} onClick={checkRefresh}>
+                  <RefreshCw size={13} />
+                  刷新核对
+                </button>
+              )}
             </div>
             {selected.length > 0 && (
               <div className="selection-toolbar">
@@ -623,6 +724,9 @@ export default function App() {
             <Canvas
               key={`${state.project.id}-${parentId ?? 'root'}-${canvasRevision}`}
               nodes={nodes}
+              rootPath={state.project.rootPath}
+              initialExpanded={state.project.view?.expandedIds}
+              onExpandedChange={(expandedIds) => updateView({ expandedIds })}
               autoExpand={state.project.demo?.scenario === 'expanded-flow'}
               parentId={parentId}
               selected={selected}
@@ -720,11 +824,11 @@ export default function App() {
             <Sparkles size={20} />
           </div>
           <span className="eyebrow">先想清楚，再动文件</span>
-          <h1>先试着整理，再决定怎么放。</h1>
+          <h1>看清文件，整理后应用到本地。</h1>
           <p>
             在自由画布中排列、归类和调整文件。
             <br />
-            分类草案可以改，文件路径看得见，整理方案拿得走。
+            核对路径后应用，完成后可恢复上次文件移动。
           </p>
           <button className="button primary large" disabled={starting || busy} onClick={openFolder}>
             <FolderOpen size={18} />
@@ -747,7 +851,7 @@ export default function App() {
             <ChevronRight size={15} />
             <span>
               <ScanEye size={19} />
-              预览目标路径
+              核对并应用到本地
             </span>
           </div>
           <div className="welcome-note">
@@ -793,7 +897,11 @@ export default function App() {
         <div className="busy-overlay">
           <div>
             <LoaderCircle size={22} className="spin" />
-            {starting ? '正在恢复项目…' : '正在读取与检查…'}
+            {starting
+              ? '正在恢复项目…'
+              : progress
+                ? `${progress.phase} · ${progress.completed}/${progress.total}`
+                : '正在读取与检查…'}
           </div>
         </div>
       )}
@@ -870,6 +978,7 @@ export default function App() {
       {dialog === 'preview' && preview && (
         <PreviewDialog
           preview={preview}
+          errorMessage={problem}
           showUnchanged={showUnchanged}
           setShowUnchanged={setShowUnchanged}
           onClose={() => setDialog(null)}
@@ -890,7 +999,9 @@ export default function App() {
           }
           onApply={() =>
             void run(async () => {
-              const result = unwrap(await window.fileCanvas.applyChanges(current.current!.project));
+              const result = unwrap(
+                await window.fileCanvas.applyChanges(current.current!.project, preview.planId!),
+              );
               replace(workspace(result.project));
               enter(null);
               setDialog(null);
@@ -899,6 +1010,28 @@ export default function App() {
               notify(result.message);
             })
           }
+        />
+      )}
+      {dialog === 'recovery' && state && (
+        <RecoveryDialog
+          task={operation}
+          error={problem}
+          rootPath={state.project.rootPath}
+          onClose={() => setDialog(null)}
+          onRecover={revertDisk}
+        />
+      )}
+      {dialog === 'refresh' && refreshReview && (
+        <RefreshDialog
+          review={refreshReview}
+          onClose={() => setDialog(null)}
+          onAdopt={() => {
+            replace(workspace(refreshReview.project));
+            setDialog(null);
+            setCanvasRevision((v) => v + 1);
+            setInspectId(null);
+            notify('已更新文件基准并保留可用的整理计划。本地文件未移动。');
+          }}
         />
       )}
       {dialog === 'draft' && state && (
@@ -945,7 +1078,8 @@ export default function App() {
             </p>
             <p>
               5.
-              “预览变更”会检查源文件与目标路径。点击“确认并移动文件”后实际应用；当前支持项目内普通文件移动和新建分类目录，不覆盖同名文件，不移动已有文件夹整体。
+              “检查并应用”会核对真实路径、同名冲突和文件夹完整性。点“应用到本地文件”执行并核验结果，支持本地同卷文件和文件夹的移动、重命名和新建分类目录，每次最多
+              100 个文件。
             </p>
             <p>
               6.
@@ -955,7 +1089,7 @@ export default function App() {
             <p>7. “体验示例”每次创建新的真实样例副本并自动加入画布，不会覆盖你已经保存的项目。</p>
             <p>
               8. “更多工具 →
-              撤销上次磁盘整理”恢复上次实际移动；如果文件被外部修改或原位置出现新文件，会停止并提示。“待删除”仅是候选标记，不会删除文件。模型分析需先允许当前项目与服务，之后点击文件自动解释。
+              恢复上次文件移动”恢复最近一次实际整理；中断任务持续显示在画布顶部。如果涉及文件被外部修改或原位置出现新文件，会停止并提示。使用“刷新核对”查看外部变化并更新草案。“待删除”仅是标记，不会删除文件。
             </p>
           </div>
         </Modal>

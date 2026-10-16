@@ -28,6 +28,12 @@ export interface Project {
   createdAt: string;
   updatedAt: string;
   demo?: { scenario: 'content-project' | 'expanded-flow'; fixtureVersion: 1 };
+  view?: {
+    expandedIds?: string[];
+    parentId?: string | null;
+    showBrowser?: boolean;
+    focused?: boolean;
+  };
 }
 export interface Snapshot {
   nodes: NodeMap;
@@ -57,11 +63,33 @@ export interface Change {
   issues: string[];
 }
 export interface Preview {
+  planId?: string;
+  preserved?: number;
   changes: Change[];
   changed: number;
   unchanged: number;
   issues: number;
   checkedAt: string;
+}
+export interface OperationStatus {
+  id: string;
+  projectId: string;
+  status: string;
+  needsRecovery: boolean;
+  canUndo: boolean;
+  createdAt: string;
+  message: string;
+}
+export interface OperationProgress {
+  operationId: string;
+  phase: string;
+  completed: number;
+  total: number;
+}
+export interface RefreshReview {
+  project: Project;
+  changes: { kind: 'new' | 'modified' | 'missing'; path: string; name: string }[];
+  skipped: { path: string; name: string; reason: string }[];
 }
 export interface ApiResult<T> {
   ok: boolean;
@@ -126,9 +154,13 @@ export interface FileAiAccess {
 export interface FileCanvasApi {
   applyChanges(
     project: Project,
+    planId: string,
   ): Promise<ApiResult<{ project: Project; moved: number; message: string }>>;
   undoDisk(projectId: string): Promise<ApiResult<Project>>;
   diskUndoAvailable(projectId: string): Promise<ApiResult<boolean>>;
+  operationStatus(projectId: string): Promise<ApiResult<OperationStatus | null>>;
+  prepareRefresh(project: Project): Promise<ApiResult<RefreshReview>>;
+  onOperationProgress(callback: (progress: OperationProgress) => void): () => void;
   openFile(path: string): Promise<ApiResult<{ path: string; opened: boolean; method: string }>>;
   fileAiAccess(enabled?: boolean): Promise<ApiResult<FileAiAccess>>;
   explainFile(project: Project, id: string, refresh?: boolean): Promise<ApiResult<FileAdvice>>;

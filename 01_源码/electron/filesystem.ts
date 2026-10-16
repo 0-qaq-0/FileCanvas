@@ -245,6 +245,38 @@ export async function generatePreview(root: string, project: Project): Promise<P
       issues: [...new Set(issues)],
     });
   }
+  const movedFolders = changes.filter(
+    (c) => c.source && project.nodes[c.id].kind === 'folder' && c.kind !== 'unchanged',
+  );
+  const sources = new Set(
+    Object.values(project.nodes)
+      .filter((n) => n.source)
+      .map((n) => n.source!.path.toLowerCase()),
+  );
+  for (const folder of movedFolders) {
+    try {
+      const queue = [folder.source!];
+      let visited = 0;
+      while (queue.length) {
+        const directory = queue.pop()!;
+        for (const child of await listDirectory(root, directory)) {
+          if (++visited > MAX_NODES) throw new Error('文件夹超过 5000 项，请缩小范围。');
+          if (child.blocked || !sources.has(child.path.toLowerCase()))
+            throw new Error('文件夹含未加入画布或不可读取的条目，请刷新并完整加入后再移动。');
+          if (child.kind === 'folder') queue.push(child.path);
+        }
+      }
+    } catch (e) {
+      folder.issues.push(readableError(e));
+    }
+  }
+  if (
+    changes.filter((c) => c.source && project.nodes[c.id].kind === 'file' && c.kind !== 'unchanged')
+      .length > 100
+  ) {
+    for (const c of changes.filter((c) => c.kind !== 'unchanged'))
+      c.issues.push('每次最多应用 100 个文件，请分批整理。');
+  }
   return {
     changes,
     changed: changes.filter((c) => c.kind !== 'unchanged').length,
