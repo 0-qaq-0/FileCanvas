@@ -72,6 +72,7 @@ export function PreviewDialog({
   exportPath,
   onExport,
   onReveal,
+  onApply,
 }: {
   preview: Preview;
   showUnchanged: boolean;
@@ -81,6 +82,7 @@ export function PreviewDialog({
   exportPath: string | null;
   onExport(): void;
   onReveal(): void;
+  onApply?(): void;
 }) {
   const [view, setView] = useState<'changes' | 'structure'>('changes');
   const trees = useMemo(() => planTrees(preview, rootPath), [preview, rootPath]);
@@ -91,7 +93,7 @@ export function PreviewDialog({
     <Modal
       wide
       title="预览整理结果"
-      subtitle="基于当前虚拟结构与磁盘实时检查生成；此处不会执行任何真实文件操作。"
+      subtitle="拖动只形成计划。核对后点击“确认并移动”才会实际修改文件位置。"
       onClose={onClose}
     >
       <div className="preview-summary">
@@ -109,7 +111,7 @@ export function PreviewDialog({
         </div>
         <span className="tag">
           <ShieldCheck size={13} />
-          原始文件只读
+          确认后才执行
         </span>
       </div>
       <div className="preview-filter">
@@ -201,7 +203,7 @@ export function PreviewDialog({
         </div>
       )}
       <footer className="modal-footer">
-        <span>安全 MVP：真实应用与恢复尚未开放</span>
+        <span>普通文件移动 · 不覆盖同名文件 · 可撤销上次磁盘整理</span>
         <button className="button" onClick={onExport}>
           <Download size={15} />
           导出整理方案
@@ -209,6 +211,15 @@ export function PreviewDialog({
         <button className="button primary" onClick={onClose}>
           返回继续整理
         </button>
+        {onApply && (
+          <button
+            className="button primary"
+            disabled={!preview.changed || !!preview.issues}
+            onClick={onApply}
+          >
+            确认并移动文件
+          </button>
+        )}
       </footer>
     </Modal>
   );

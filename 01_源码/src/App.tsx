@@ -31,6 +31,7 @@ import type {
   Project,
   ProjectRecord,
   Workspace,
+  FileAdvice,
 } from './domain/types';
 import {
   addFolder,
@@ -44,10 +45,11 @@ import {
   isDescendant,
 } from './domain/workspace';
 import { Browser } from './components/Browser';
-import { Canvas } from './components/Canvas';
+import { Canvas } from './components/ExpandedCanvas';
 import { Modal, MoveDialog, PreviewDialog, ProjectsDialog } from './components/Dialogs';
 import { DraftDialog } from './components/DraftDialog';
-import { ContentPanel } from './components/ContentPanel';
+import { FileInspector } from './components/FileInspector';
+import { applyFileAdvice } from './domain/file-advice';
 import { AiPanel } from './components/AiPanel';
 import { adoptAiPlan } from './domain/ai-plan';
 import { buildClassificationDraft } from './domain/drafts';
@@ -65,6 +67,7 @@ export default function App() {
   const saveCounter = useRef(0);
   const [toast, setToast] = useState('');
   const [busy, setBusy] = useState(false);
+  const operationBusy = useRef(false);
   const [starting, setStarting] = useState(true);
   const [dialog, setDialog] = useState<
     'create' | 'rename' | 'projects' | 'move' | 'preview' | 'help' | 'draft' | null
@@ -81,6 +84,8 @@ export default function App() {
   const [showAi, setShowAi] = useState(false);
   const [inspectId, setInspectId] = useState<string | null>(null);
   const [focused, setFocused] = useState(false);
+  const [highlighted, setHighlighted] = useState<string | null>(null);
+  const [canUndoDisk, setCanUndoDisk] = useState(false);
   function notify(message: string) {
     setToast(message);
   }
@@ -132,8 +137,19 @@ export default function App() {
     if (state) void persist(state.project).catch(() => {});
   }, [state?.project]);
   useEffect(() => {
+    if (state)
+      window.fileCanvas.diskUndoAvailable(state.project.id).then((r) => {
+        if (r.ok) setCanUndoDisk(!!r.data);
+      });
+  }, [state?.project.id]);
+  useEffect(() => {
     if (!window.fileCanvas) return;
     return window.fileCanvas.onCloseRequested(() => {
+      if (operationBusy.current) {
+        window.fileCanvas.finishClose(false);
+        notify('正在处理文件，请完成后再关闭窗口。');
+        return;
+      }
       void persist()
         .then(() => window.fileCanvas.finishClose(true))
         .catch(() => {
@@ -187,7 +203,8 @@ export default function App() {
     return () => window.removeEventListener('keydown', keyboard);
   }, [state, dialog, selected, parentId, busy]);
   async function run(task: () => Promise<void>) {
-    if (busy) return;
+    if (operationBusy.current) return;
+    operationBusy.current = true;
     setBusy(true);
     try {
       await task();
@@ -195,6 +212,11 @@ export default function App() {
       notify((error as Error).message);
     } finally {
       setBusy(false);
+      operationBusy.current = false;
+      if (current.current)
+        window.fileCanvas.diskUndoAvailable(current.current.project.id).then((r) => {
+          if (r.ok) setCanUndoDisk(!!r.data);
+        });
     }
   }
   function openFolder() {
@@ -284,6 +306,41 @@ export default function App() {
   function move(ids: string[], destination: string | null) {
     edit((s) => moveNodes(s, ids, destination));
     setSelected([]);
+  }
+  function openFile(id: string) {
+    const source = current.current?.project.nodes[id]?.source;
+    if (source)
+      void run(async () => {
+        const result = unwrap(await window.fileCanvas.openFile(source.path));
+        if (result.opened)
+          notify(
+            result.method === 'text-editor'
+              ? '已用文本编辑器打开；返回后会刷新预览。'
+              : '已用系统默认应用打开；返回后会刷新预览。',
+          );
+      });
+  }
+  function adoptFile(id: string, advice: FileAdvice) {
+    edit((s) => applyFileAdvice(s, id, advice));
+    const destination = current.current?.project.nodes[id]?.parentId ?? null;
+    setHighlighted(destination);
+    notify(
+      advice.action === 'review-delete'
+        ? '已标记待删除候选，原文件仍保留。'
+        : advice.action === 'keep'
+          ? '已取消待删除标记。'
+          : '已采用推荐位置，可撤销；确认整理后才移动真实文件。',
+    );
+  }
+  function revertDisk() {
+    void run(async () => {
+      const project = unwrap(await window.fileCanvas.undoDisk(current.current!.project.id));
+      replace(workspace(project));
+      enter(null);
+      setCanUndoDisk(false);
+      setHighlighted(null);
+      notify('已撤销上次磁盘整理，文件恢复到原位置。');
+    });
   }
   function remove() {
     edit((s) =>
@@ -441,9 +498,24 @@ export default function App() {
               <FolderOpen size={16} />
               查看原文件夹
             </button>
-            <button className="button apply-disabled" disabled title="当前版本只提供虚拟整理">
+            <button
+              className="button"
+              disabled={!state || busy || !canUndoDisk}
+              onClick={() =>
+                void run(async () => {
+                  const project = unwrap(
+                    await window.fileCanvas.undoDisk(current.current!.project.id),
+                  );
+                  replace(workspace(project));
+                  enter(null);
+                  setCanUndoDisk(false);
+                  setHighlighted(null);
+                  notify('已撤销上次磁盘整理，文件恢复到原位置。');
+                })
+              }
+            >
               <ShieldCheck size={16} />
-              应用到硬盘（待开放）
+              撤销上次磁盘整理
             </button>
             <button className="button" onClick={() => setDialog('help')}>
               <Info size={16} />
@@ -503,8 +575,14 @@ export default function App() {
               </div>
               <span className="canvas-safe">
                 <ShieldCheck size={13} />
-                虚拟整理 · 原文件不变
+                拖动先预演 · 确认后移动
               </span>
+              {canUndoDisk && (
+                <button className="button small" disabled={busy} onClick={revertDisk}>
+                  <Undo2 size={14} />
+                  撤销这次实际移动
+                </button>
+              )}
               <button className="button small" onClick={() => setDialog('draft')} disabled={busy}>
                 <Layers3 size={14} />
                 分类草案
@@ -545,6 +623,7 @@ export default function App() {
             <Canvas
               key={`${state.project.id}-${parentId ?? 'root'}-${canvasRevision}`}
               nodes={nodes}
+              autoExpand={state.project.demo?.scenario === 'expanded-flow'}
               parentId={parentId}
               selected={selected}
               onSelect={setSelected}
@@ -556,6 +635,8 @@ export default function App() {
                 setShowAi(false);
               }}
               onBrowse={() => setShowBrowser(true)}
+              onOpen={openFile}
+              highlighted={highlighted}
               onMove={move}
               onImport={add}
               onLayout={(positions) =>
@@ -569,20 +650,29 @@ export default function App() {
             />
           </section>
           {!focused && inspectId && nodes[inspectId] && (
-            <ContentPanel
+            <FileInspector
+              key={`${state.project.id}-${inspectId}`}
               node={nodes[inspectId]}
-              nodes={nodes}
-              root={state.project.rootPath}
-              onClose={() => setInspectId(null)}
+              project={state.project}
+              onClose={() => {
+                setInspectId(null);
+                setHighlighted(null);
+              }}
               onEnter={enter}
               onSelect={(id) => {
                 setInspectId(id);
                 setSelected([id]);
               }}
-              onAsk={() => {
-                setSelected([inspectId]);
+              onSettings={() => {
                 setInspectId(null);
                 setShowAi(true);
+              }}
+              onOpen={openFile}
+              onAdopt={adoptFile}
+              onHighlight={setHighlighted}
+              onLocate={(id) => {
+                setParentId(null);
+                setHighlighted(id);
               }}
             />
           )}
@@ -662,7 +752,7 @@ export default function App() {
           </div>
           <div className="welcome-note">
             <ShieldCheck size={15} />
-            当前版本仅虚拟整理，真实文件始终保持原样。
+            拖动先预演，确认整理后才实际移动文件。
           </div>
         </main>
       )}
@@ -798,6 +888,17 @@ export default function App() {
               unwrap(await window.fileCanvas.revealExport());
             })
           }
+          onApply={() =>
+            void run(async () => {
+              const result = unwrap(await window.fileCanvas.applyChanges(current.current!.project));
+              replace(workspace(result.project));
+              enter(null);
+              setDialog(null);
+              setCanUndoDisk(true);
+              setHighlighted(null);
+              notify(result.message);
+            })
+          }
         />
       )}
       {dialog === 'draft' && state && (
@@ -835,14 +936,17 @@ export default function App() {
             </p>
             <p>
               3.
-              拖动卡片排列；拖进文件夹卡片改变归属；单击查看内容，双击文件夹进入，双击文件预览。多选可批量移动。F2
+              点击文件夹同屏展开，直接拖入或拖出容器；单击文件看内容和解释，双击用系统应用打开。多选可批量移动。F2
               重命名，Ctrl+Z / Ctrl+Y 撤销和重做。
             </p>
             <p>
               4. 自动保存包含虚拟结构与各层坐标，Ctrl+S
               手动保存。打开已保存项目可恢复进度；重启后撤销历史会重新开始。
             </p>
-            <p>5. “预览变更”会检查源文件与目标路径。只导入的条目参与预览，未导入文件保持原状。</p>
+            <p>
+              5.
+              “预览变更”会检查源文件与目标路径。点击“确认并移动文件”后实际应用；当前支持项目内普通文件移动和新建分类目录，不覆盖同名文件，不移动已有文件夹整体。
+            </p>
             <p>
               6.
               “分类草案”按文件名与扩展名提出建议，采用后仍是虚拟结构；不确定的用途由你调整。预览中的“结构对照”可比较两棵树，并导出
@@ -850,7 +954,8 @@ export default function App() {
             </p>
             <p>7. “体验示例”每次创建新的真实样例副本并自动加入画布，不会覆盖你已经保存的项目。</p>
             <p>
-              程序不会对所选原始文件执行移动、重命名或删除。演示新副本、项目与导出方案写入软件自己的数据目录；真实应用与恢复仍未开放。
+              8. “更多工具 →
+              撤销上次磁盘整理”恢复上次实际移动；如果文件被外部修改或原位置出现新文件，会停止并提示。“待删除”仅是候选标记，不会删除文件。模型分析需先允许当前项目与服务，之后点击文件自动解释。
             </p>
           </div>
         </Modal>

@@ -84,6 +84,7 @@ try {
   await expect(page.locator('.text-preview')).toContainText('图书馆和操场');
   await page.getByRole('button', { name: '收起内容预览' }).click();
   await card('参考').click();
+  await page.getByRole('button', { name: '预览 参考', exact: true }).click();
   await expect(page.locator('.preview-children')).toContainText('验收标准.txt');
   await page
     .locator('.preview-children')

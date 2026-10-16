@@ -172,3 +172,42 @@ it('rejects malicious plans, applies valid grouping atomically and undoes withou
     ),
   ).toThrow('变化');
 });
+it('requires project authorization, automatically retrieves context, caches file explanations and revokes access on model changes', async () => {
+  await ai.save({ baseUrl: 'http://127.0.0.1:11434/v1', model: 'local' });
+  const p = await project(),
+    id = Object.keys(p.nodes)[0];
+  await expect(ai.explain(root, p, id)).rejects.toThrow('允许');
+  await ai.fileAccess(root, true);
+  await fs.writeFile(
+    path.join(root, '项目说明.md'),
+    '项目说明：拍摄方案与预算都属于校园拍摄资料。',
+  );
+  const reply = {
+    purpose: '拍摄执行方案',
+    contents: ['三张照片'],
+    projectRole: '项目执行',
+    action: 'move',
+    destinationId: null,
+    newFolder: '拍摄资料',
+    reason: '依据项目说明',
+  };
+  const fetcher = vi
+    .fn()
+    .mockImplementation(
+      async () =>
+        new Response(
+          JSON.stringify({ choices: [{ message: { content: JSON.stringify(reply) } }] }),
+        ),
+    );
+  vi.stubGlobal('fetch', fetcher);
+  const advice = await ai.explain(root, p, id);
+  expect(advice.readBody).toBe(true);
+  expect(advice.sources.some((s) => s.path === '项目说明.md')).toBe(true);
+  await ai.explain(root, p, id);
+  expect(fetcher).toHaveBeenCalledTimes(1);
+  await ai.explain(root, p, id, true);
+  expect(fetcher).toHaveBeenCalledTimes(2);
+  expect(JSON.stringify(fetcher.mock.calls)).not.toContain('do-not-send');
+  await ai.save({ baseUrl: 'http://127.0.0.1:11434/v1', model: 'another' });
+  expect((await ai.fileAccess(root)).enabled).toBe(false);
+});

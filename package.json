@@ -16,7 +16,8 @@
     "package:win": "npm run build && electron-builder --win portable --x64",
     "package:dir": "npm run build && electron-builder --win --x64 --dir",
     "test:demo": "npm run build && node 02_测试/交互测试/demo.e2e.mjs",
-    "test:ai": "npm run build && node 02_测试/交互测试/canvas-ai.e2e.mjs"
+    "test:ai": "npm run build && node 02_测试/交互测试/canvas-ai.e2e.mjs",
+    "test:expanded": "node 02_测试/交互测试/expanded-flow.e2e.mjs"
   },
   "dependencies": {
     "lucide-react": "^0.468.0",

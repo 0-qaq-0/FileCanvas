@@ -2118,3 +2118,330 @@ button {
 [hidden] {
   display: none !important;
 }
+.folder-container {
+  position: absolute;
+  border: 1px solid #cbded1;
+  border-radius: 13px;
+  background: #edf5efdd;
+  box-shadow: 0 3px 12px #324f3810;
+  user-select: none;
+  touch-action: none;
+}
+.canvas-first .canvas-surface {
+  min-width: 0;
+  min-height: 0;
+}
+.folder-container-heading {
+  height: 40px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 9px;
+  background: #dfede3;
+  border-bottom: 1px solid #cbded1;
+  border-radius: 12px 12px 0 0;
+  cursor: grab;
+}
+.folder-container-heading strong {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.folder-container-heading small {
+  font-size: 10px;
+  color: #789883;
+}
+.folder-container-heading button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  color: #658772;
+  border-radius: 4px;
+}
+.folder-container-heading button:hover {
+  background: #c6ddce;
+}
+.folder-container-caption {
+  position: absolute;
+  bottom: 7px;
+  left: 14px;
+  font-size: 9px;
+  color: #85a08b;
+  pointer-events: none;
+}
+.folder-container.selected {
+  border-color: #3e8b69;
+  box-shadow: 0 0 0 2px #67a67c35;
+}
+.folder-container.drop-target,
+.canvas-card.drop-target {
+  border: 2px solid #23834d;
+  background: #d9efdf;
+  box-shadow: 0 0 0 4px #49a86625;
+}
+.recommended-target {
+  outline: 3px solid #72ac63;
+  outline-offset: 3px;
+}
+.root-drop-label {
+  position: absolute;
+  left: 28px;
+  top: 8px;
+  font-size: 9px;
+  display: flex;
+  gap: 5px;
+  align-items: center;
+  color: #94a69b;
+  pointer-events: none;
+}
+.root-drop-label span {
+  margin-left: 8px;
+  font-size: 9px;
+}
+.root-drop-label.receiving {
+  color: #267344;
+}
+.drop-destination {
+  position: sticky;
+  left: 20px;
+  top: 12px;
+  display: table;
+  margin-left: 20px;
+  padding: 7px 12px;
+  background: #245e3c;
+  color: white;
+  font-size: 11px;
+  border-radius: 7px;
+  z-index: 200;
+  pointer-events: none;
+}
+.card-open-button {
+  position: absolute;
+  bottom: 5px;
+  right: 5px;
+  color: #699581;
+  padding: 4px;
+  display: flex;
+  opacity: 0;
+}
+.canvas-card:hover .card-open-button,
+.canvas-card:focus-within .card-open-button {
+  opacity: 1;
+}
+.file-inspector {
+  width: 390px;
+}
+.file-inspector .content-heading {
+  padding: 14px 16px 10px;
+  cursor: grab;
+}
+.file-inspector .content-heading > svg {
+  flex-shrink: 0;
+  color: #a1b2a6;
+}
+.file-inspector .content-heading h2 {
+  font-size: 15px;
+}
+.file-inspector .content-heading small {
+  font-size: 10px;
+}
+.inspector-open {
+  margin: 0 16px 12px;
+}
+.inspector-scroll {
+  overflow: auto;
+  flex: 1;
+  min-height: 0;
+  padding: 0 16px 18px;
+}
+.file-advice-section {
+  border-top: 1px solid #e5ede7;
+  padding-top: 10px;
+}
+.file-advice-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.file-advice-heading > span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #548268;
+}
+.file-ai-consent {
+  font-size: 10px;
+  margin: 9px 0;
+}
+.inspector-service {
+  display: block;
+  overflow-wrap: anywhere;
+  color: #91a198;
+  font-size: 9px;
+  margin: 4px 0 10px;
+}
+.inspector-note {
+  font-size: 11px;
+  color: #86998d;
+  line-height: 1.7;
+}
+.inspector-thinking {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: #7d9e88;
+  font-size: 11px;
+  padding: 10px 0;
+}
+.advice-purpose small {
+  font-size: 10px;
+  color: #8ba092;
+}
+.advice-purpose h3 {
+  font-size: 17px;
+  line-height: 1.6;
+  margin: 6px 0 14px;
+  color: #2f573d;
+}
+.advice-contents strong,
+.advice-project-role strong {
+  display: block;
+  font-size: 11px;
+  color: #7d9585;
+  margin-bottom: 5px;
+}
+.advice-contents ul {
+  padding-left: 18px;
+  margin: 6px 0 14px;
+  font-size: 12px;
+  line-height: 1.8;
+}
+.advice-project-role {
+  font-size: 12px;
+  line-height: 1.8;
+}
+.file-recommendation {
+  padding: 14px;
+  background: #edf6eb;
+  border: 1px solid #bcd8b8;
+  border-radius: 10px;
+  margin: 14px 0;
+}
+.file-recommendation > small {
+  font-size: 10px;
+  color: #6f9668;
+}
+.file-recommendation h3 {
+  font-size: 15px;
+  line-height: 1.6;
+  margin: 5px 0;
+  overflow-wrap: anywhere;
+  color: #356a34;
+}
+.file-recommendation p {
+  font-size: 11px;
+  line-height: 1.8;
+  color: #66845f;
+}
+.file-recommendation .button {
+  width: 100%;
+}
+.file-recommendation.needs-review {
+  background: #fff7e9;
+  border-color: #e7d4ab;
+}
+.advice-evidence {
+  font-size: 10px;
+  color: #84968b;
+  margin: 12px 0;
+}
+.advice-evidence summary {
+  cursor: pointer;
+}
+.advice-evidence strong {
+  display: block;
+  overflow-wrap: anywhere;
+  margin-top: 10px;
+}
+.advice-evidence pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 10px;
+  line-height: 1.6;
+  max-height: 180px;
+  overflow: auto;
+}
+.file-followup {
+  display: flex;
+  align-items: flex-end;
+  gap: 7px;
+  margin-top: 12px;
+}
+.file-followup label {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+  font-size: 10px;
+  color: #81988a;
+}
+.file-followup input {
+  width: 100%;
+  padding: 9px;
+  border: 1px solid #d9e5dc;
+  border-radius: 6px;
+  font-size: 11px;
+}
+.file-followup .button {
+  padding: 7px 10px;
+  min-height: 34px;
+}
+.file-followup-answer {
+  font-size: 12px;
+  line-height: 1.9;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+.inline-file-preview {
+  padding: 14px 0;
+  border-top: 1px solid #e5ede7;
+  margin-top: 16px;
+}
+.inline-file-preview > h3 {
+  font-size: 11px;
+  color: #8a9c90;
+  margin: 0 0 12px;
+}
+.inline-file-preview .text-preview {
+  font-size: 11px;
+  color: #718779;
+  max-height: 320px;
+  overflow: auto;
+}
+.file-inspector .path-inspector {
+  margin: 0;
+}
+.delete-candidate {
+  font-size: 11px;
+  color: #a18b55;
+  padding-top: 12px;
+}
+@media (max-width: 1120px) {
+  .file-inspector {
+    width: 350px;
+  }
+  .canvas-tools > span {
+    font-size: 10px;
+  }
+  .canvas-tools .text-button {
+    font-size: 10px;
+    padding: 5px;
+  }
+}

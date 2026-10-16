@@ -4,12 +4,15 @@ import path from 'node:path';
 import os from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
+import { spawn } from 'node:child_process';
+import { constants } from 'node:fs';
 import {
   createProject,
   generatePreview,
   importPaths,
   inside,
   listDirectory,
+  readEntry,
   noLinks,
   readableError,
   searchFiles,
@@ -22,11 +25,23 @@ import { markdownPlan } from '../src/domain/plan-report';
 import type { Project } from '../src/domain/types';
 import { AiService } from './ai';
 import { readContent } from './content';
+import { DiskOperations } from './disk-operations';
+import { createFlowDemo } from './flow-demo';
 
 let mainWindow: BrowserWindow;
 let activeRoot: string | null = null;
 let storage: ProjectStorage;
 let ai: AiService;
+let disk: DiskOperations;
+let fileOperation: Promise<unknown> | null = null;
+function diskTask<T>(task: () => Promise<T>): Promise<T> {
+  if (fileOperation) throw new Error('正在执行磁盘整理，请稍候。');
+  const pending = task();
+  fileOperation = pending;
+  return pending.finally(() => {
+    fileOperation = null;
+  });
+}
 let lastExport: string | null = null;
 let lastExportDirectory: string | null = null;
 const devUrl =
@@ -35,7 +50,10 @@ const devUrl =
     : undefined;
 const e2e = !app.isPackaged && process.env.FILECANVAS_E2E === '1';
 app.setName('FileCanvas');
-app.setPath('userData', path.join(app.getPath('appData'), 'FileCanvas'));
+app.setPath(
+  'userData',
+  path.join(app.getPath('appData'), devUrl ? 'FileCanvas-Development' : 'FileCanvas'),
+);
 if ((e2e || process.env.FILECANVAS_TEST_PROFILE === '1') && process.env.FILECANVAS_TEST_DATA) {
   const dir = path.resolve(process.env.FILECANVAS_TEST_DATA);
   if (!dir.startsWith(path.join(os.tmpdir(), 'filecanvas-e2e-')))
@@ -86,6 +104,23 @@ async function activate(project: Project): Promise<Project> {
 app.whenReady().then(async () => {
   if (!hasInstanceLock) return;
   storage = new ProjectStorage(path.join(app.getPath('userData'), 'projects'));
+  if (devUrl && !e2e && process.env.FILECANVAS_TEST_PROFILE !== '1') {
+    const existing = path.join(app.getPath('appData'), 'FileCanvas', 'ai-settings.json');
+    try {
+      await noLinks(path.dirname(existing), existing);
+      await fs.mkdir(app.getPath('userData'), { recursive: true });
+      await fs.copyFile(
+        existing,
+        path.join(app.getPath('userData'), 'ai-settings.json'),
+        constants.COPYFILE_EXCL,
+      );
+    } catch (error) {
+      if (!['ENOENT', 'EEXIST'].includes((error as NodeJS.ErrnoException).code ?? '')) throw error;
+    }
+  }
+  disk = new DiskOperations(path.join(app.getPath('userData'), 'operations'));
+  if (devUrl && !e2e && !(await storage.list()).length)
+    await storage.save(await createFlowDemo(app.getPath('userData')));
   ai = new AiService(app.getPath('userData'), {
     encrypt(value) {
       if (!safeStorage.isEncryptionAvailable()) throw new Error('系统密钥加密不可用，未保存密钥。');
@@ -103,7 +138,7 @@ app.whenReady().then(async () => {
     minHeight: 680,
     backgroundColor: '#f5f6f8',
     icon: path.join(__dirname, '../../01_源码/assets/icon.ico'),
-    title: 'FileCanvas · 文件画布与 AI 助手',
+    title: devUrl ? 'FileCanvas · 开发体验 · 展开式整理' : 'FileCanvas · 文件画布与 AI 助手',
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
@@ -146,6 +181,44 @@ app.whenReady().then(async () => {
   });
   handle('fc:list', (directory) => listDirectory(root(), directory));
   handle('fc:content', (filename) => readContent(root(), filename));
+  handle('fc:file-ai-access', (enabled) => ai.fileAccess(root(), enabled));
+  handle('fc:file-explain', (project, id, refresh) => ai.explain(root(), project, id, refresh));
+  handle('fc:file-followup', (project, id, question) => ai.followup(root(), project, id, question));
+  handle('fc:open-file', async (filename) => {
+    const entry = await readEntry(root(), filename);
+    if (entry.kind !== 'file') throw new Error('请选择一个文件。');
+    const safeDocument =
+      /\.(txt|md|markdown|csv|tsv|json|jsonl|ya?ml|toml|ini|log|xml|pdf|docx?|xlsx?|pptx?|png|jpe?g|gif|webp|bmp|mp3|wav|flac|mp4|mov|mkv)$/i.test(
+        entry.name,
+      );
+    const codeFile =
+      /\.(py|[cm]?[jt]sx?|ps1|sh|cmd|bat|vbs|c|cpp|h|hpp|rs|go|java|html|css|svg|sql)$/i.test(
+        entry.name,
+      );
+    if (!safeDocument && !codeFile)
+      throw new Error('此格式暂不提供直接打开，请在资源管理器中选择合适的查看程序。');
+    const method = codeFile ? 'text-editor' : 'system-default';
+    if (e2e) return { path: entry.path, opened: false, method };
+    if (codeFile)
+      await new Promise<void>((resolve, reject) => {
+        const child = spawn('notepad.exe', [entry.path], {
+          detached: true,
+          stdio: 'ignore',
+          windowsHide: false,
+          shell: false,
+        });
+        child.once('spawn', () => {
+          child.unref();
+          resolve();
+        });
+        child.once('error', reject);
+      });
+    else {
+      const error = await shell.openPath(entry.path);
+      if (error) throw new Error('系统应用未能打开此文件。');
+    }
+    return { path: entry.path, opened: true, method };
+  });
   handle('fc:ai-settings', () => ai.settings());
   handle('fc:ai-save', (settings) => ai.save(settings));
   handle('fc:ai-test', () => ai.test());
@@ -158,6 +231,7 @@ app.whenReady().then(async () => {
   handle('fc:search', (query) => searchFiles(root(), query));
   handle('fc:import', (paths) => importPaths(root(), paths));
   handle('fc:save', (project: Project) => {
+    if (fileOperation || disk.isBusy()) throw new Error('正在执行磁盘整理，请完成后再保存或关闭。');
     validateAuthorized(project, root());
     return storage.save(project);
   });
@@ -168,6 +242,29 @@ app.whenReady().then(async () => {
     return project ? activate(project) : null;
   });
   handle('fc:preview', (project) => generatePreview(root(), project));
+  handle('fc:disk-undo-available', (projectId) => disk.available(root(), projectId));
+  handle('fc:apply', (project: Project) =>
+    diskTask(async () => {
+      await storage.flush();
+      const result = await disk.apply(root(), project);
+      try {
+        await storage.save(result.project);
+      } catch {
+        throw new Error('文件已经移动，但项目记录保存失败。请使用“撤销上次磁盘整理”恢复原路径。');
+      }
+      ai.invalidate(root());
+      return result;
+    }),
+  );
+  handle('fc:undo-disk', (projectId) =>
+    diskTask(async () => {
+      await storage.flush();
+      const project = await disk.undo(root(), projectId);
+      await storage.save(project);
+      ai.invalidate(root());
+      return project;
+    }),
+  );
   handle('fc:open-demo', async () => {
     const owner = app.getPath('userData');
     const runDirectory = path.join(owner, 'demo-runs', randomUUID());
