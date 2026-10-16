@@ -1,7 +1,8 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from 'electron';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
+import { randomUUID } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 import {
   createProject,
@@ -9,16 +10,22 @@ import {
   importPaths,
   inside,
   listDirectory,
+  noLinks,
   readableError,
   searchFiles,
   validateAuthorized,
 } from './filesystem';
 import { ProjectStorage } from './storage';
+import { createSampleFolder } from './demo-samples';
+import { importEntries, workspace } from '../src/domain/workspace';
+import { markdownPlan } from '../src/domain/plan-report';
 import type { Project } from '../src/domain/types';
 
 let mainWindow: BrowserWindow;
 let activeRoot: string | null = null;
 let storage: ProjectStorage;
+let lastExport: string | null = null;
+let lastExportDirectory: string | null = null;
 const devUrl =
   !app.isPackaged && process.env.FILECANVAS_DEV_URL === 'http://127.0.0.1:5173'
     ? process.env.FILECANVAS_DEV_URL
@@ -138,6 +145,60 @@ app.whenReady().then(async () => {
     return project ? activate(project) : null;
   });
   handle('fc:preview', (project) => generatePreview(root(), project));
+  handle('fc:open-demo', async () => {
+    const owner = app.getPath('userData');
+    const runDirectory = path.join(owner, 'demo-runs', randomUUID());
+    await noLinks(owner, path.dirname(runDirectory));
+    await fs.mkdir(runDirectory, { recursive: true });
+    await noLinks(owner, runDirectory);
+    const sampleRoot = path.join(runDirectory, '待整理示例');
+    const manifest = await createSampleFolder(sampleRoot);
+    await fs.writeFile(
+      path.join(runDirectory, '样例清单.json'),
+      JSON.stringify(manifest, null, 2),
+      { encoding: 'utf8', flag: 'wx' },
+    );
+    // MSIX hosts may redirect AppData writes without exposing a symlink. Use the
+    // resolved directory after creation for the same strict source boundary.
+    const canonicalRoot = await fs.realpath(sampleRoot);
+    const project = createProject(canonicalRoot);
+    project.name = '内容项目 · 整理演练';
+    project.demo = { scenario: 'content-project', fixtureVersion: 1 };
+    const entries = await importPaths(
+      canonicalRoot,
+      (await listDirectory(canonicalRoot, canonicalRoot)).map((e) => e.path),
+    );
+    const populated = importEntries(workspace(project), entries, null).project;
+    await storage.save(populated);
+    return activate(populated);
+  });
+  handle('fc:export-plan', async (project: Project) => {
+    const preview = await generatePreview(root(), project);
+    const directory = path.join(app.getPath('userData'), 'exports');
+    await noLinks(app.getPath('userData'), directory);
+    await fs.mkdir(directory, { recursive: true });
+    await noLinks(app.getPath('userData'), directory);
+    const filename = path.join(directory, `FileCanvas-整理方案-${randomUUID()}.md`);
+    await fs.writeFile(filename, markdownPlan(project, preview), { encoding: 'utf8', flag: 'wx' });
+    lastExport = await fs.realpath(filename);
+    lastExportDirectory = path.dirname(lastExport);
+    return { path: lastExport, checkedAt: preview.checkedAt, preview };
+  });
+  handle('fc:reveal-export', async () => {
+    if (!lastExport || !lastExportDirectory) throw new Error('请先导出一份整理方案。');
+    await noLinks(lastExportDirectory, lastExport);
+    if (!(await fs.stat(lastExport)).isFile()) throw new Error('导出文件已不存在。');
+    shell.showItemInFolder(lastExport);
+    return true;
+  });
+  handle('fc:reveal-root', async () => {
+    const directory = root();
+    await noLinks(directory, directory);
+    if (!(await fs.stat(directory)).isDirectory()) throw new Error('原始文件夹已不可用。');
+    const error = await shell.openPath(directory);
+    if (error) throw new Error('无法在资源管理器中打开原始文件夹。');
+    return true;
+  });
   ipcMain.on('fc:finish-close', (event, saved) => {
     if (
       event.sender !== mainWindow.webContents ||

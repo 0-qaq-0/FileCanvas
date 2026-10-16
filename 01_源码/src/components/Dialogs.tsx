@@ -1,6 +1,17 @@
-import { X, AlertTriangle, ShieldCheck, ArrowDown, FolderOpen, Check } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import {
+  X,
+  AlertTriangle,
+  ShieldCheck,
+  ArrowDown,
+  FolderOpen,
+  Check,
+  Download,
+  GitCompareArrows,
+} from 'lucide-react';
 import type { NodeMap, Preview, ProjectRecord } from '../domain/types';
 import { relativeTarget } from '../domain/workspace';
+import { planTrees } from '../domain/plan-report';
 
 export function Modal({
   title,
@@ -57,12 +68,22 @@ export function PreviewDialog({
   showUnchanged,
   setShowUnchanged,
   onClose,
+  rootPath,
+  exportPath,
+  onExport,
+  onReveal,
 }: {
   preview: Preview;
   showUnchanged: boolean;
   setShowUnchanged(v: boolean): void;
   onClose(): void;
+  rootPath: string;
+  exportPath: string | null;
+  onExport(): void;
+  onReveal(): void;
 }) {
+  const [view, setView] = useState<'changes' | 'structure'>('changes');
+  const trees = useMemo(() => planTrees(preview, rootPath), [preview, rootPath]);
   const shown = preview.changes.filter(
     (c) => showUnchanged || c.kind !== 'unchanged' || c.issues.length,
   );
@@ -92,55 +113,99 @@ export function PreviewDialog({
         </span>
       </div>
       <div className="preview-filter">
-        <label>
-          <input
-            type="checkbox"
-            checked={showUnchanged}
-            onChange={(e) => setShowUnchanged(e.target.checked)}
-          />
-          显示无变化的文件
-        </label>
+        <div className="view-tabs">
+          <button className={view === 'changes' ? 'active' : ''} onClick={() => setView('changes')}>
+            逐项变更
+          </button>
+          <button
+            className={view === 'structure' ? 'active' : ''}
+            onClick={() => setView('structure')}
+          >
+            <GitCompareArrows size={13} />
+            结构对照
+          </button>
+        </div>
+        {view === 'changes' && (
+          <label>
+            <input
+              type="checkbox"
+              checked={showUnchanged}
+              onChange={(e) => setShowUnchanged(e.target.checked)}
+            />
+            显示无变化的文件
+          </label>
+        )}
         <span>检查于 {new Date(preview.checkedAt).toLocaleTimeString('zh-CN')}</span>
       </div>
-      <div className="preview-list">
-        {!shown.length && (
-          <div className="quiet-empty">
-            <Check size={24} />
-            <p>当前没有路径变更。画布位置不影响真实路径。</p>
-          </div>
-        )}
-        {shown.map((change) => (
-          <article
-            className={`change-row ${change.issues.length ? 'has-issue' : ''}`}
-            key={change.id}
-          >
-            <div className="change-heading">
-              <strong>{change.name}</strong>
-              <span className={`tag ${change.kind === 'unchanged' ? 'neutral' : ''}`}>
-                {labels[change.kind]}
-              </span>
+      {view === 'structure' ? (
+        <div className="structure-comparison">
+          <section>
+            <h3>
+              整理前 <span>已加入的源条目</span>
+            </h3>
+            <pre data-testid="before-tree">{trees.before}</pre>
+          </section>
+          <section>
+            <h3>
+              拟整理后 <span>尚未执行</span>
+            </h3>
+            <pre data-testid="after-tree">{trees.after}</pre>
+          </section>
+        </div>
+      ) : (
+        <div className="preview-list">
+          {!shown.length && (
+            <div className="quiet-empty">
+              <Check size={24} />
+              <p>当前没有路径变更。画布位置不影响真实路径。</p>
             </div>
-            {change.source && (
-              <div className="path-line">
-                <span>原路径</span>
-                <code>{change.source}</code>
+          )}
+          {shown.map((change) => (
+            <article
+              className={`change-row ${change.issues.length ? 'has-issue' : ''}`}
+              key={change.id}
+            >
+              <div className="change-heading">
+                <strong>{change.name}</strong>
+                <span className={`tag ${change.kind === 'unchanged' ? 'neutral' : ''}`}>
+                  {labels[change.kind]}
+                </span>
               </div>
-            )}
-            <div className="path-line">
-              <span>{change.source ? <ArrowDown size={13} /> : '将创建'}</span>
-              <code>{change.target}</code>
-            </div>
-            {change.issues.map((issue) => (
-              <p className="issue" key={issue}>
-                <AlertTriangle size={13} />
-                {issue}
-              </p>
-            ))}
-          </article>
-        ))}
-      </div>
+              {change.source && (
+                <div className="path-line">
+                  <span>原路径</span>
+                  <code>{change.source}</code>
+                </div>
+              )}
+              <div className="path-line">
+                <span>{change.source ? <ArrowDown size={13} /> : '将创建'}</span>
+                <code>{change.target}</code>
+              </div>
+              {change.issues.map((issue) => (
+                <p className="issue" key={issue}>
+                  <AlertTriangle size={13} />
+                  {issue}
+                </p>
+              ))}
+            </article>
+          ))}
+        </div>
+      )}
+      {exportPath && (
+        <div className="export-result">
+          <span>方案已导出（未执行真实整理）</span>
+          <code title={exportPath}>{exportPath}</code>
+          <button className="text-button" onClick={onReveal}>
+            在文件夹中查看
+          </button>
+        </div>
+      )}
       <footer className="modal-footer">
         <span>安全 MVP：真实应用与恢复尚未开放</span>
+        <button className="button" onClick={onExport}>
+          <Download size={15} />
+          导出整理方案
+        </button>
         <button className="button primary" onClick={onClose}>
           返回继续整理
         </button>

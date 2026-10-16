@@ -1165,3 +1165,258 @@ button {
 ::-webkit-scrollbar-thumb:hover {
   background: #afc0c8;
 }
+.heading-actions {
+  display: flex;
+  gap: 8px;
+}
+.virtual-banner .text-button {
+  margin-left: auto;
+  padding: 0;
+  color: #68967e;
+}
+.app-shell.has-dialog .toast {
+  bottom: 6px;
+}
+.button.draft-entry {
+  color: #397f77;
+  border-color: #b7d3c7;
+  background: #eef7f1;
+}
+.button.demo-entry {
+  color: #758a69;
+  background: #f7f9f2;
+  border-color: #e1e8d4;
+}
+.welcome-demo {
+  margin-top: 12px;
+  color: #608878;
+  background: transparent;
+  border-color: transparent;
+}
+.demo-guide {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  font-size: 10px;
+  color: #708d7e;
+  margin: -4px 0 10px;
+}
+.demo-guide small {
+  color: #9aaa9f;
+  font-size: 9px;
+}
+.path-inspector {
+  flex-shrink: 0;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  border: 1px solid #dce7e1;
+  background: white;
+  border-radius: 7px;
+  padding: 8px 12px;
+  margin-bottom: 10px;
+  color: #80a08d;
+  overflow: hidden;
+}
+.path-inspector > div {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.path-inspector small {
+  font-size: 9px;
+  color: #91a19b;
+}
+.path-inspector code {
+  font-family: Consolas, 'Microsoft YaHei UI', monospace;
+  color: #536f63;
+  font-size: 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.path-inspector.quiet {
+  background: #f8faf9;
+  border-style: dashed;
+  color: #93a49b;
+  font-size: 10px;
+}
+.path-inspector svg {
+  flex-shrink: 0;
+}
+.draft-presets {
+  display: flex;
+  gap: 12px;
+  padding: 18px 26px 12px;
+}
+.preset {
+  display: flex;
+  flex: 1;
+  gap: 12px;
+  align-items: center;
+  text-align: left;
+  border: 1px solid #e0e7e3;
+  border-radius: 9px;
+  padding: 16px;
+  color: #94a49a;
+}
+.preset span {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.preset strong {
+  font-size: 13px;
+  font-weight: 500;
+  color: #5b7366;
+}
+.preset small {
+  font-size: 10px;
+  color: #91a097;
+  line-height: 1.7;
+}
+.preset.active {
+  border-color: #6eaa8f;
+  background: #f1f8f3;
+  color: #588d74;
+  box-shadow: 0 0 0 2px #b8d8c820;
+}
+.draft-summary {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 8px 26px 12px;
+  color: #8fa096;
+  font-size: 10px;
+}
+.draft-summary span:last-child {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+.draft-rows {
+  margin: 0 26px 18px;
+  overflow: auto;
+  min-height: 80px;
+}
+.draft-row {
+  display: grid;
+  grid-template-columns: minmax(140px, 1fr) 140px minmax(160px, 1.4fr);
+  gap: 10px;
+  border-bottom: 1px solid #eef2ef;
+  padding: 11px 8px;
+  align-items: center;
+}
+.draft-row strong {
+  font-size: 11px;
+  color: #597465;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.draft-row span {
+  font-size: 10px;
+  color: #699c82;
+}
+.draft-row small {
+  font-size: 10px;
+  color: #9caaa1;
+  line-height: 1.7;
+}
+.view-tabs {
+  display: flex;
+  align-items: center;
+  background: #eff4f1;
+  padding: 3px;
+  border-radius: 6px;
+  gap: 3px;
+}
+.view-tabs button {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  padding: 6px 10px;
+  color: #8d9d94;
+  border-radius: 4px;
+}
+.view-tabs button.active {
+  background: white;
+  color: #4f826b;
+  box-shadow: 0 1px 4px #304e3d0c;
+}
+.structure-comparison {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  overflow: auto;
+  padding: 6px 26px 18px;
+  min-height: 150px;
+}
+.structure-comparison section {
+  border: 1px solid #e2e8e3;
+  border-radius: 8px;
+  background: #fafcfb;
+  min-width: 0;
+}
+.structure-comparison h3 {
+  font-size: 12px;
+  font-weight: 500;
+  color: #587963;
+  border-bottom: 1px solid #e8ede9;
+  padding: 12px;
+  margin: 0;
+}
+.structure-comparison h3 span {
+  color: #9aa99d;
+  font-size: 9px;
+  margin-left: 10px;
+}
+.structure-comparison pre {
+  font-family: Consolas, 'Microsoft YaHei UI', monospace;
+  font-size: 10px;
+  line-height: 2;
+  margin: 0;
+  padding: 13px;
+  overflow: auto;
+  max-height: 370px;
+  color: #78927e;
+}
+.export-result {
+  margin: 0 26px 12px;
+  background: #f1f7f1;
+  border: 1px solid #d9e8d9;
+  border-radius: 7px;
+  padding: 10px 12px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+  color: #729076;
+  font-size: 10px;
+}
+.export-result code {
+  flex: 1;
+  min-width: 180px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #8ea18d;
+  font-size: 9px;
+}
+@media (max-width: 1120px) {
+  .path-inspector .tag {
+    font-size: 9px;
+    padding: 3px 5px;
+  }
+  .demo-guide small {
+    display: none;
+  }
+  .draft-summary {
+    gap: 12px;
+  }
+}

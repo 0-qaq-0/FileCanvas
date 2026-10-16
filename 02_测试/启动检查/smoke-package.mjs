@@ -1,5 +1,7 @@
 import { _electron as electron, expect } from '@playwright/test';
 import fs from 'node:fs/promises';
+import path from 'node:path';
+import { createHash } from 'node:crypto';
 const env = { ...process.env };
 delete env.ELECTRON_RUN_AS_NODE;
 const app = await electron.launch({
@@ -24,9 +26,43 @@ try {
   // never manipulate its files or capture the user's directory contents.
   const restoredProject = await page.locator('.browser-panel').isVisible();
   await page.locator('.toolbar').screenshot({ path: '03_测试结果/packaged-startup.png' });
+  let demoChecked = false;
+  if (process.argv.includes('--demo')) {
+    await page.getByRole('button', { name: '体验示例', exact: true }).click();
+    await expect(page.locator('.statusbar')).toContainText('20 个文件 · 2 个文件夹');
+    await expect(page.getByTestId('save-state')).toHaveText('项目已保存');
+    const restored = await page.evaluate(() => window.fileCanvas.restore());
+    expect(restored.ok).toBe(true);
+    const project = restored.data;
+    const manifest = JSON.parse(
+      await fs.readFile(path.join(path.dirname(project.rootPath), '样例清单.json'), 'utf8'),
+    );
+    await page.getByRole('button', { name: '分类草案', exact: true }).click();
+    await page.getByRole('button', { name: '采用草案到画布' }).click();
+    await expect(page.locator('.statusbar')).toContainText('20 个文件 · 6 个文件夹');
+    await page.getByRole('button', { name: /预览变更/ }).click();
+    await page.getByRole('button', { name: '结构对照', exact: true }).click();
+    await expect(page.getByTestId('after-tree')).toContainText('02_创作素材');
+    await page.getByRole('button', { name: '导出整理方案', exact: true }).click();
+    await expect(page.locator('.export-result')).toBeVisible();
+    for (const file of manifest.files)
+      expect(
+        createHash('sha256')
+          .update(await fs.readFile(path.join(project.rootPath, file.path)))
+          .digest('hex'),
+      ).toBe(file.sha256);
+    expect(await fs.readdir(project.rootPath)).not.toContain('01_策划资料');
+    await page.getByRole('button', { name: '返回继续整理' }).click();
+    await page.getByRole('button', { name: '体验示例', exact: true }).click();
+    await expect(page.locator('.statusbar')).toContainText('20 个文件 · 2 个文件夹');
+    demoChecked = true;
+    console.log(
+      'Packaged demo creation, draft, structure and export passed; original hashes preserved.',
+    );
+  }
   await fs.writeFile(
     '03_测试结果/package-smoke.json',
-    JSON.stringify({ status: 'passed', restoredProject, ...runtime }, null, 2),
+    JSON.stringify({ status: 'passed', restoredProject, demoChecked, ...runtime }, null, 2),
     'utf8',
   );
   console.log('Packaged Windows application smoke passed:', runtime);
