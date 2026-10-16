@@ -1,0 +1,106 @@
+{
+  "root": "待整理示例",
+  "fileCount": 20,
+  "files": [
+    {
+      "path": "封面草稿.png",
+      "bytes": 617,
+      "sha256": "487c0ae7698f269bbd973d9fb26456c372db47347f137e6f137a5604999c5fed"
+    },
+    {
+      "path": "封面定稿.png",
+      "bytes": 617,
+      "sha256": "8e8082a7fc88798e50d12a4e22a32a3243fc575ff78f667169ff8486e1b4a382"
+    },
+    {
+      "path": "课堂截图.png",
+      "bytes": 617,
+      "sha256": "efa7ce251ff329f66ffdea2ea4f7b41a811bff7cfa2b9920e8b4a30d99455c87"
+    },
+    {
+      "path": "版式参考.svg",
+      "bytes": 351,
+      "sha256": "8071282ce8a96315d2efb73bcf13f8327158f6ed1534bd48b1665f06b991f098"
+    },
+    {
+      "path": "选题清单.csv",
+      "bytes": 105,
+      "sha256": "76714cd19901eef1fe7c7a5370d6f22d839adf83e27dbe0dd72dde0e1240ebbf"
+    },
+    {
+      "path": "拍摄脚本.md",
+      "bytes": 137,
+      "sha256": "520e73346654b8cdf15d22f08db661bca33d41887ef9a5ee689eedfb9a5500f9"
+    },
+    {
+      "path": "预算记录.csv",
+      "bytes": 95,
+      "sha256": "1ef91a5ed660538a3a1741333d442a29fca1700e5644e7335d1421a126e2a7c9"
+    },
+    {
+      "path": "产品说明.md",
+      "bytes": 100,
+      "sha256": "b49b61920bb961f2c697bfab406c1bbd0d44a5a7417ce88dd8c14ddfc731089e"
+    },
+    {
+      "path": "项目复盘.txt",
+      "bytes": 97,
+      "sha256": "fa0686da25b4c620aa719e76283264b4c67d8f42407d092b36e5c758629fe020"
+    },
+    {
+      "path": "最终交付清单.txt",
+      "bytes": 82,
+      "sha256": "8ccad76daae7de89b6e2fca0219f51851394de8424458b880700abd5c015ffa2"
+    },
+    {
+      "path": "演示配音.wav",
+      "bytes": 16044,
+      "sha256": "9a8a3c3b5b938be498e2f75b3b19f008e7e9489f3a7f94588e891112a33d9baa"
+    },
+    {
+      "path": "提示音.wav",
+      "bytes": 16044,
+      "sha256": "9a8a3c3b5b938be498e2f75b3b19f008e7e9489f3a7f94588e891112a33d9baa"
+    },
+    {
+      "path": "素材备份.zip",
+      "bytes": 170,
+      "sha256": "d80465df0ade80739b5a0ce4d36a6af1720125e7ee2239bed6209bb5ad317e65"
+    },
+    {
+      "path": "前端按钮.ts",
+      "bytes": 101,
+      "sha256": "636bdec6447d9549065430f4fbce8441751fe3fce9f712866dbfea9192d0457b"
+    },
+    {
+      "path": "拍摄任务.json",
+      "bytes": 78,
+      "sha256": "18ea73ea47a622b1e49e18744c4fd8fe843d4aebfbd2aced8a1cc8ca8019b4b8"
+    },
+    {
+      "path": "待判断素材.sample",
+      "bytes": 79,
+      "sha256": "0337531f283d822e7c84c0d8a31bcc36f7bd6d7aa4fdbb59886884681c93650d"
+    },
+    {
+      "path": "临时下载/活动说明.txt",
+      "bytes": 58,
+      "sha256": "b4125b2c5f2cfa287fccb76354eac569494d1363c0c4622fe18b1222671fcf87"
+    },
+    {
+      "path": "临时下载/配图.png",
+      "bytes": 617,
+      "sha256": "5d6e5109d93a5bff57eb614de6ec73d7fd39a896a7564914ef90766e2f8c014c"
+    },
+    {
+      "path": "旧资料/封面草稿.png",
+      "bytes": 617,
+      "sha256": "9a8c35b4c4e7b6b9f4110af4f7169fb14c2b9d31bb37a7eebf73023fb0c5b0b5"
+    },
+    {
+      "path": "旧资料/旧版说明.md",
+      "bytes": 87,
+      "sha256": "afbafdd6a4828a9252e50ae264089bdb47a066776bd26eb97f022fb43ea7ae26"
+    }
+  ]
+}

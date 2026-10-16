@@ -18,6 +18,8 @@ import {
   Info,
   Sparkles,
   PanelLeft,
+  Layers3,
+  Play,
 } from 'lucide-react';
 import type {
   ApiResult,
@@ -41,6 +43,9 @@ import {
 import { Browser } from './components/Browser';
 import { Canvas } from './components/Canvas';
 import { Modal, MoveDialog, PreviewDialog, ProjectsDialog } from './components/Dialogs';
+import { DraftDialog } from './components/DraftDialog';
+import { PathInspector } from './components/PathInspector';
+import { buildClassificationDraft } from './domain/drafts';
 
 function unwrap<T>(response: ApiResult<T>): T {
   if (!response.ok) throw new Error(response.error ?? '操作失败');
@@ -57,7 +62,7 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [starting, setStarting] = useState(true);
   const [dialog, setDialog] = useState<
-    'create' | 'rename' | 'projects' | 'move' | 'preview' | 'help' | null
+    'create' | 'rename' | 'projects' | 'move' | 'preview' | 'help' | 'draft' | null
   >(null);
   const [name, setName] = useState('');
   const [nameError, setNameError] = useState('');
@@ -65,6 +70,8 @@ export default function App() {
   const [records, setRecords] = useState<ProjectRecord[]>([]);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [showUnchanged, setShowUnchanged] = useState(false);
+  const [exportPath, setExportPath] = useState<string | null>(null);
+  const [canvasRevision, setCanvasRevision] = useState(0);
   function notify(message: string) {
     setToast(message);
   }
@@ -190,8 +197,20 @@ export default function App() {
         setParentId(null);
         setSelected([]);
         setPreview(null);
+        setExportPath(null);
         notify('已创建只读整理项目。原始文件不会被修改。');
       }
+    });
+  }
+  function openDemo() {
+    void run(async () => {
+      await persist();
+      const project = unwrap(await window.fileCanvas.openDemo());
+      replace(workspace(project));
+      enter(null);
+      setPreview(null);
+      setExportPath(null);
+      notify('已创建一份新的 20 文件演示副本。你原来的项目已保存，可随时恢复。');
     });
   }
   async function add(paths: string[], destination = parentId, position?: { x: number; y: number }) {
@@ -277,7 +296,7 @@ export default function App() {
     );
   }).length;
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${dialog ? 'has-dialog' : ''}`}>
       <div className="brandbar">
         <div className="brand">
           <span className="brand-mark">
@@ -285,7 +304,7 @@ export default function App() {
           </span>
           <strong>FileCanvas</strong>
           <span className="brand-separator" />
-          <span>给文件一个清晰的位置</span>
+          <span>文件整理演练台</span>
         </div>
         <div className="safe-badge">
           <ShieldCheck size={14} />
@@ -350,12 +369,17 @@ export default function App() {
           </button>
         </div>
         <div className="toolbar-spacer" />
+        <button className="button demo-entry" disabled={busy || starting} onClick={openDemo}>
+          <Play size={15} />
+          体验示例
+        </button>
         <button
           className="button"
           disabled={!state || busy}
           onClick={() =>
             void run(async () => {
               setPreview(unwrap(await window.fileCanvas.preview(current.current!.project)));
+              setExportPath(null);
               setDialog('preview');
             })
           }
@@ -389,10 +413,20 @@ export default function App() {
                   我的整理画布 <span className="tag">虚拟整理</span>
                 </h1>
               </div>
-              <button className="button" onClick={openCreate} disabled={busy}>
-                <FolderPlus size={16} />
-                新建文件夹
-              </button>
+              <div className="heading-actions">
+                <button
+                  className="button draft-entry"
+                  onClick={() => setDialog('draft')}
+                  disabled={busy}
+                >
+                  <Layers3 size={16} />
+                  分类草案
+                </button>
+                <button className="button" onClick={openCreate} disabled={busy}>
+                  <FolderPlus size={16} />
+                  新建文件夹
+                </button>
+              </div>
             </div>
             <div className="breadcrumb">
               <button
@@ -418,7 +452,25 @@ export default function App() {
             <div className="virtual-banner">
               <ShieldCheck size={15} />
               <span>这里的移动与重命名只改变虚拟结构。画布位置独立保存，不影响硬盘路径。</span>
+              <button
+                className="text-button"
+                onClick={() =>
+                  void run(async () => {
+                    unwrap(await window.fileCanvas.revealRoot());
+                  })
+                }
+              >
+                查看原文件夹
+              </button>
             </div>
+            {state.project.demo && (
+              <div className="demo-guide">
+                <span className="tag">演示副本 · 20 个真实样例</span>
+                <span>① 生成分类草案 → ② 自由微调 → ③ 对照结构并导出方案</span>
+                <small>再点“体验示例”会新建一份，不覆盖当前进度</small>
+              </div>
+            )}
+            <PathInspector nodes={nodes} selected={selected} root={state.project.rootPath} />
             {selected.length > 0 && (
               <div className="selection-toolbar">
                 <strong>已选择 {selected.length} 项</strong>
@@ -444,7 +496,7 @@ export default function App() {
               </div>
             )}
             <Canvas
-              key={`${state.project.id}-${parentId ?? 'root'}`}
+              key={`${state.project.id}-${parentId ?? 'root'}-${canvasRevision}`}
               nodes={nodes}
               parentId={parentId}
               selected={selected}
@@ -474,15 +526,19 @@ export default function App() {
             <Sparkles size={20} />
           </div>
           <span className="eyebrow">先想清楚，再动文件</span>
-          <h1>把凌乱，整理成思路。</h1>
+          <h1>先试着整理，再决定怎么放。</h1>
           <p>
             在自由画布中排列、归类和调整文件。
             <br />
-            每一个想法，都可以先试着放一放。
+            分类草案可以改，文件路径看得见，整理方案拿得走。
           </p>
           <button className="button primary large" disabled={starting || busy} onClick={openFolder}>
             <FolderOpen size={18} />
             选择文件夹，开始整理
+          </button>
+          <button className="button welcome-demo" disabled={starting || busy} onClick={openDemo}>
+            <Play size={16} />
+            先用 20 个示例文件试一遍
           </button>
           <div className="welcome-steps">
             <span>
@@ -508,7 +564,9 @@ export default function App() {
       )}
       <footer className="statusbar">
         <span className="status-path" title={state?.project.rootPath}>
-          {state?.project.rootPath ?? '尚未打开文件夹'}
+          {state?.project.demo
+            ? `演示副本 · ${state.project.name}`
+            : (state?.project.rootPath ?? '尚未打开文件夹')}
         </span>
         <span>
           {fileCount} 个文件 · {Object.keys(nodes).length - fileCount} 个文件夹
@@ -621,6 +679,43 @@ export default function App() {
           showUnchanged={showUnchanged}
           setShowUnchanged={setShowUnchanged}
           onClose={() => setDialog(null)}
+          rootPath={state!.project.rootPath}
+          exportPath={exportPath}
+          onExport={() =>
+            void run(async () => {
+              const result = unwrap(await window.fileCanvas.exportPlan(current.current!.project));
+              setExportPath(result.path);
+              setPreview(result.preview);
+              notify('已导出包含结构对照和检查结果的方案。所有真实文件保持原位。');
+            })
+          }
+          onReveal={() =>
+            void run(async () => {
+              unwrap(await window.fileCanvas.revealExport());
+            })
+          }
+        />
+      )}
+      {dialog === 'draft' && state && (
+        <DraftDialog
+          state={state}
+          parentId={parentId}
+          onClose={() => setDialog(null)}
+          onAdopt={(mode) => {
+            if (!current.current) return;
+            const draft = buildClassificationDraft(current.current, parentId, mode);
+            if (!draft.next) {
+              notify(draft.issues.join('；'));
+              return;
+            }
+            replace(draft.next);
+            setCanvasRevision((value) => value + 1);
+            setSelected([]);
+            setDialog(null);
+            notify(
+              `已把 ${draft.rows.length} 个文件的草案放到画布，可一次撤销。真实文件尚未移动。`,
+            );
+          }}
         />
       )}
       {dialog === 'help' && (
@@ -641,7 +736,13 @@ export default function App() {
             </p>
             <p>5. “预览变更”会检查源文件与目标路径。只导入的条目参与预览，未导入文件保持原状。</p>
             <p>
-              阶段一不会创建、移动、重命名或删除硬盘文件；真实应用、日志与恢复须在阶段二验证后开放。
+              6.
+              “分类草案”按文件名与扩展名提出建议，采用后仍是虚拟结构；不确定的用途由你调整。预览中的“结构对照”可比较两棵树，并导出
+              Markdown 方案到软件自己的 exports 目录。
+            </p>
+            <p>7. “体验示例”每次创建新的真实样例副本并自动加入画布，不会覆盖你已经保存的项目。</p>
+            <p>
+              程序不会对所选原始文件执行移动、重命名或删除。演示新副本、项目与导出方案写入软件自己的数据目录；真实应用与恢复仍未开放。
             </p>
           </div>
         </Modal>

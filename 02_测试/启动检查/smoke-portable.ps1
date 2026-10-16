@@ -1,5 +1,7 @@
-$ErrorActionPreference = 'Stop'
-$portablePath = Join-Path $PSScriptRoot '..\..\07_发布成品\FileCanvas-0.1.0-Windows-x64.exe'
+﻿$ErrorActionPreference = 'Stop'
+$projectRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
+$version = (Get-Content -LiteralPath (Join-Path $projectRoot 'package.json') -Raw -Encoding utf8 | ConvertFrom-Json).version
+$portablePath = Join-Path $projectRoot "07_发布成品\FileCanvas-$version-Windows-x64.exe"
 $portablePath = [System.IO.Path]::GetFullPath($portablePath)
 $results = @()
 foreach ($waitForPage in @($false, $true)) {

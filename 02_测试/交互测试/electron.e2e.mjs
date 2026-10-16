@@ -113,11 +113,11 @@ try {
   const aBox = await card('A.jpg').boundingBox();
   await page.mouse.move(aBox.x + 60, aBox.y + 60);
   await page.mouse.down();
-  await page.mouse.move(aBox.x + 100, aBox.y + 290, { steps: 15 });
+  await page.mouse.move(aBox.x + 100, aBox.y + 170, { steps: 15 });
   await page.mouse.up();
   const a1 = await coordinates('A.jpg'),
     b1 = await coordinates('B.jpg');
-  expect(Math.abs(a1.y - a0.y - 230)).toBeLessThanOrEqual(2);
+  expect(Math.abs(a1.y - a0.y - 110)).toBeLessThanOrEqual(2);
   expect(b1.y - b0.y).toBe(a1.y - a0.y);
   await page.keyboard.press('Control+z');
   await expect.poll(async () => (await coordinates('A.jpg')).y).toBe(a0.y);

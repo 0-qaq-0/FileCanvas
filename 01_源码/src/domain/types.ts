@@ -26,6 +26,7 @@ export interface Project {
   nodes: NodeMap;
   createdAt: string;
   updatedAt: string;
+  demo?: { scenario: 'content-project'; fixtureVersion: 1 };
 }
 export interface Snapshot {
   nodes: NodeMap;
@@ -76,6 +77,12 @@ export interface FileCanvasApi {
   load(id: string): Promise<ApiResult<Project>>;
   restore(): Promise<ApiResult<Project | null>>;
   preview(project: Project): Promise<ApiResult<Preview>>;
+  openDemo(): Promise<ApiResult<Project>>;
+  exportPlan(
+    project: Project,
+  ): Promise<ApiResult<{ path: string; checkedAt: string; preview: Preview }>>;
+  revealExport(): Promise<ApiResult<boolean>>;
+  revealRoot(): Promise<ApiResult<boolean>>;
   onCloseRequested(callback: () => void): () => void;
   finishClose(saved: boolean): void;
 }

@@ -10,6 +10,10 @@ const api: FileCanvasApi = {
   load: (id) => ipcRenderer.invoke('fc:load', id),
   restore: () => ipcRenderer.invoke('fc:restore'),
   preview: (project) => ipcRenderer.invoke('fc:preview', project),
+  openDemo: () => ipcRenderer.invoke('fc:open-demo'),
+  exportPlan: (project) => ipcRenderer.invoke('fc:export-plan', project),
+  revealExport: () => ipcRenderer.invoke('fc:reveal-export'),
+  revealRoot: () => ipcRenderer.invoke('fc:reveal-root'),
   onCloseRequested: (callback) => {
     const listener = () => callback();
     ipcRenderer.on('fc:close-requested', listener);
