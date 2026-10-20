@@ -10,6 +10,8 @@ export interface RenameOptions {
   start: number;
   pad: number;
   now?: number;
+  // What {parent} means for items at the top level (normally the project name).
+  rootName?: string;
 }
 export interface RenameRow {
   id: string;
@@ -52,7 +54,7 @@ export function planBatchRename(
       : undefined;
     const searched = options.find ? base.split(options.find).join(options.replace) : base;
     const number = String(options.start + index).padStart(Math.max(0, options.pad), '0');
-    const parent = node.parentId ? (nodes[node.parentId]?.name ?? '') : '';
+    const parent = node.parentId ? (nodes[node.parentId]?.name ?? '') : (options.rootName ?? '');
     const mtime = node.source?.mtimeMs || options.now || Date.now();
     const to =
       template.replace(TOKEN, (_, token: string) =>
@@ -64,6 +66,7 @@ export function planBatchRename(
               ? dateOf(mtime)
               : parent,
       ) + ext;
+    if (!error && !to.slice(0, to.length - ext.length).trim()) error = '新名称为空，请调整规则';
     if (!error)
       try {
         validateName(to);

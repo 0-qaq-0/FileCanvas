@@ -1148,6 +1148,7 @@ export default function App() {
         <BatchRenameDialog
           nodes={nodes}
           ids={selected}
+          rootName={state?.project.name ?? ''}
           onClose={() => setDialog(null)}
           onApply={(rows) => {
             try {

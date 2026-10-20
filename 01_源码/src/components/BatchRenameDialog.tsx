@@ -15,11 +15,13 @@ const TEMPLATES: [string, string][] = [
 export function BatchRenameDialog({
   nodes,
   ids,
+  rootName,
   onApply,
   onClose,
 }: {
   nodes: NodeMap;
   ids: string[];
+  rootName: string;
   onApply(rows: RenameRow[]): void;
   onClose(): void;
 }) {
@@ -30,8 +32,8 @@ export function BatchRenameDialog({
   const [pad, setPad] = useState(2);
   const now = useMemo(() => Date.now(), []);
   const rows = useMemo(
-    () => planBatchRename(nodes, ids, { find, replace, template, start, pad, now }),
-    [nodes, ids, find, replace, template, start, pad, now],
+    () => planBatchRename(nodes, ids, { find, replace, template, start, pad, now, rootName }),
+    [nodes, ids, find, replace, template, start, pad, now, rootName],
   );
   const changed = rows.filter((row) => row.changed).length;
   const problems = rows.filter((row) => row.error).length;

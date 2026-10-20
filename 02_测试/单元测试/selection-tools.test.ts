@@ -184,6 +184,31 @@ describe('batch rename', () => {
     );
     expect(row.to).toBe('2026-05-06_旅行_a.png');
   });
+  it('uses the project name for {parent} at the top level instead of an empty string', () => {
+    const state = setup(['旅行1.jpg']);
+    const nodes = state.project.nodes;
+    const withRoot = planBatchRename(
+      nodes,
+      ['f0'],
+      options({ template: '{parent}_{n}', rootName: '下载' }),
+    );
+    expect(withRoot[0].to).toBe('下载_01.jpg');
+    expect(withRoot[0].error).toBeUndefined();
+  });
+  it('refuses a result with no name left, so no hidden dot-file is created', () => {
+    const state = addFolder(setup(['IMG.jpg']), 'IMG', null);
+    const nodes = state.project.nodes;
+    const emptied = planBatchRename(
+      nodes,
+      ['f0', byName(state, 'IMG').id],
+      options({ find: 'IMG', replace: '' }),
+    );
+    expect(emptied.map((r) => r.error)).toEqual([
+      expect.stringContaining('为空'),
+      expect.stringContaining('为空'),
+    ]);
+    expect(() => applyBatchRename(state, emptied)).toThrow();
+  });
   it('renames folders without inventing an extension', () => {
     const state = addFolder(setup(['a.png']), '资料.2024', null);
     const folder = byName(state, '资料.2024');
