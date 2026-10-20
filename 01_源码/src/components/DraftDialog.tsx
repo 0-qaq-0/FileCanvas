@@ -6,12 +6,14 @@ import {
   AlertTriangle,
   CalendarDays,
   Archive,
+  ListChecks,
   ChevronDown,
   ChevronRight,
 } from 'lucide-react';
 import { buildClassificationDraft } from '../domain/drafts';
 import type { DraftMode, DraftOptions } from '../domain/drafts';
 import { RECIPE_INFO } from '../domain/recipes';
+import { CUSTOM_INFO } from '../domain/rules';
 import type { Workspace } from '../domain/types';
 import { Modal } from './Dialogs';
 
@@ -20,7 +22,9 @@ const ICONS = {
   type: Folder,
   month: CalendarDays,
   stale: Archive,
+  custom: ListChecks,
 } as const;
+const INFO = { ...RECIPE_INFO, custom: CUSTOM_INFO };
 const ORDER: DraftMode[] = ['content-project', 'type', 'month', 'stale'];
 const STALE_CHOICES = [30, 90, 180, 365];
 
@@ -81,11 +85,11 @@ export function DraftDialog({
             >
               <Icon size={20} />
               <span>
-                <strong>{RECIPE_INFO[id].title}</strong>
+                <strong>{INFO[id].title}</strong>
                 <small>
                   {id === 'stale'
                     ? `把超过 ${staleDays} 天没改过的文件收进“久未修改”，近期文件留在原处`
-                    : RECIPE_INFO[id].description}
+                    : INFO[id].description}
                 </small>
               </span>
             </button>
