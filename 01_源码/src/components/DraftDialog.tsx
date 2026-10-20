@@ -69,8 +69,10 @@ export function DraftDialog({
       if (result.ok && result.data) {
         setRules(result.data.rules);
         setRulesNotice(result.data.notice ?? '');
-      } else setRulesError(`没能读取已保存的规则：${result.error ?? '未知错误'}`);
-      setRulesReady(true);
+        setRulesReady(true);
+      } else
+        // Stay not-ready: adding a rule now could overwrite a list that merely failed to read.
+        setRulesError(`没能读取已保存的规则：${result.error ?? '未知错误'}`);
     });
   }, [mode]);
   async function changeRules(next: OrganizeRule[]) {

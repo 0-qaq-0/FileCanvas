@@ -4,10 +4,11 @@ import path from 'node:path';
 import os from 'node:os';
 import { createHash } from 'node:crypto';
 
-// Everyday flow on a folder that looks like Downloads: suggestion strip -> recipe
-// preview with one group switched off -> adopt -> filter -> select matches -> move
-// into a new folder -> batch rename -> apply to disk -> restore. Real paths and file
-// bytes are checked at every step that touches the disk.
+// Everyday flow on a folder that looks like Downloads: suggestion strip -> saved rules
+// (add, count, reorder, nested folder, rules.json on disk, adopt/undo) -> recipe preview
+// with one group switched off -> adopt -> filter -> select matches -> move into a new
+// folder -> batch rename -> apply to disk -> restore -> apply the nested rule for real
+// -> restore. Real paths and file bytes are checked at every step that touches the disk.
 const base = await fs.mkdtemp(path.join(os.tmpdir(), 'filecanvas-e2e-smart-'));
 const data = path.join(base, '应用数据');
 const root = path.join(base, '下载');
