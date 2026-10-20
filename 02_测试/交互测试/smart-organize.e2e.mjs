@@ -93,6 +93,29 @@ try {
   expect(await noOverflow()).toBe(true);
   pass('打开普通文件夹后显示整理建议条（按类型、按月份、久未修改归档），1000×680 无溢出');
 
+  // 1b. Right-click offers the common actions, including "show in Explorer".
+  const contract = page.locator('[data-testid="canvas-card"][data-name="合同.docx"]');
+  await contract.click({ button: 'right' });
+  const menu = page.getByRole('menu', { name: '文件操作' });
+  await expect(menu.getByRole('menuitem', { name: '在资源管理器中显示' })).toBeVisible();
+  await expect(menu.getByRole('menuitem', { name: '移入新文件夹' })).toBeVisible();
+  await expect(menu.getByRole('menuitem', { name: '重命名' })).toBeVisible();
+  await page.screenshot({ path: `${shots}/01b-右键菜单.png` });
+  await menu.getByRole('menuitem', { name: '在资源管理器中显示' }).click();
+  await expect(page.getByRole('status')).toContainText('已在资源管理器中定位');
+  await contract.click({ button: 'right' });
+  await page.keyboard.press('Escape');
+  await expect(menu).toHaveCount(0);
+  await contract.click({ button: 'right' });
+  await menu.getByRole('menuitem', { name: '移入新文件夹' }).click();
+  await expect(page.getByRole('dialog', { name: '把 1 项移入新文件夹' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(page.locator('.statusbar')).toContainText('0 项待变更');
+  await page.keyboard.press('Escape');
+  await closeToast();
+  pass('右键菜单：在资源管理器中显示、移入新文件夹等；Esc 关闭，不改变计划');
+
   // 2. The preview is grouped by target folder and a group can be switched off.
   await strip.getByRole('button', { name: /按文件类型/ }).click();
   const draft = page.getByRole('dialog', { name: '先生成一份分类草案' });
