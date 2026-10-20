@@ -149,7 +149,8 @@ export function PreviewDialog({
         <span>本次整理目录</span>
         <code>{rootPath}</code>
         <small>
-          未加入画布的 {preview.preserved ?? '其他'} 个条目保留；原有未改动的空目录保留。每次最多
+          整理涉及的文件夹里，另有 {preview.preserved ?? '其他'}{' '}
+          个未加入画布的条目，会原样保留；没有涉及的位置不会被读取或改动。原有未改动的空目录保留。每次最多
           100 个文件。
         </small>
       </div>

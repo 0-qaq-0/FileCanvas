@@ -139,7 +139,10 @@ it('rolls back completed moves if a later move fails, preserving all original co
   const original = fs.link.bind(fs);
   let count = 0;
   vi.spyOn(fs, 'link').mockImplementation(async (source, target) => {
-    if (++count === 2) throw Object.assign(new Error('injected failure'), { code: 'EPERM' });
+    // The first preview creates a hard link to probe filesystem support; the
+    // injected failure targets the second real move.
+    if (!String(target).includes('.filecanvas-probe-') && ++count === 2)
+      throw Object.assign(new Error('injected failure'), { code: 'EPERM' });
     return original(source, target);
   });
   await expect(disk.apply(root, moveNodes(s, ids, folder.id).project)).rejects.toThrow(

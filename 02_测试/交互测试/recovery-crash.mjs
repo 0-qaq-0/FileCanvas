@@ -46,12 +46,14 @@ if (childMode) {
   const config = JSON.parse(await fs.readFile(process.argv[3], 'utf8'));
   const limit = Number(process.argv[4]),
     edge = process.argv[5];
-  let count = 0;
+  let count = 0,
+    armed = false;
   for (const method of ['link', 'unlink', 'mkdir', 'rmdir', 'rename']) {
     const original = fs[method].bind(fs);
     fs[method] = async (...args) => {
-      const own = typeof args[0] === 'string' && args[0].startsWith(config.base + path.sep);
-      const current = own ? ++count : 0;
+      const own =
+        armed && typeof args[0] === 'string' && args[0].startsWith(config.base + path.sep);
+      const current = own ? ++count : -1;
       if (current === limit && edge === 'before') process.exit(92);
       const result = await original(...args);
       if (current === limit && edge === 'after') process.exit(92);
@@ -59,6 +61,11 @@ if (childMode) {
     };
   }
   const disk = new DiskOperations(config.journals);
+  // The app probes hard-link support when the plan is previewed, before apply
+  // starts. Run it unarmed so the matrix covers the apply/undo mutation boundaries.
+  // Interruptions inside the probe itself are covered by the reliability unit tests.
+  await disk.linkSupport(config.root);
+  armed = true;
   if (config.phase === 'apply') await disk.apply(config.root, config.planned);
   else await disk.undo(config.root, config.planned.id);
   console.log(JSON.stringify({ count }));
