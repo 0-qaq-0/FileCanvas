@@ -116,6 +116,102 @@ try {
   await closeToast();
   pass('右键菜单：在资源管理器中显示、移入新文件夹等；Esc 关闭，不改变计划');
 
+  // 1c. Saved rules: write rules, see live counts, adopt as one undo step, nothing on disk.
+  const rulesFile = path.join(data, 'rules.json');
+  await page.getByRole('button', { name: '分类草案', exact: true }).click();
+  const rulesDraft = page.getByRole('dialog', { name: '先生成一份分类草案' });
+  await rulesDraft.getByRole('button', { name: /我的规则/ }).click();
+  await expect(rulesDraft.getByRole('button', { name: /我的规则/ })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await expect(rulesDraft).toContainText('还没有规则');
+  await page.screenshot({ path: `${shots}/01c0-我的规则-空列表.png` });
+  const addRule = async (rule) => {
+    await rulesDraft.getByRole('button', { name: '添加规则', exact: true }).click();
+    await rulesDraft.getByLabel('规则名称', { exact: true }).fill(rule.name);
+    await rulesDraft.getByLabel('目标文件夹', { exact: true }).fill(rule.folder);
+    if (rule.keywords)
+      await rulesDraft.getByLabel('名称包含的关键词', { exact: true }).fill(rule.keywords);
+    if (rule.extensions)
+      await rulesDraft.getByLabel('文件扩展名', { exact: true }).fill(rule.extensions);
+    if (rule.days) await rulesDraft.getByLabel('至少多少天没改过', { exact: true }).fill(rule.days);
+    await rulesDraft.getByRole('button', { name: '保存规则', exact: true }).click();
+  };
+  const ruleRow = (name) => rulesDraft.locator('.rule-row', { hasText: name });
+  await addRule({ name: '发票', folder: '财务\\发票', keywords: '发票', extensions: '.PDF' });
+  await expect(ruleRow('发票')).toContainText('命中 2 个');
+  await expect(ruleRow('发票')).toContainText('财务/发票');
+  await expect(rulesDraft).toContainText('10 个文件不符合任何规则，保持原位');
+  await addRule({ name: '旧文件', folder: '归档', days: '365' });
+  await expect(ruleRow('旧文件')).toContainText('命中 2 个');
+  await expect(rulesDraft).toContainText('8 个文件不符合任何规则，保持原位');
+  await addRule({ name: '全部 PDF', folder: 'PDF文档', extensions: 'pdf' });
+  await expect(ruleRow('全部 PDF')).toContainText('命中 0 个');
+  await expect(ruleRow('全部 PDF')).toContainText('另有 2 个已被前面的规则归类');
+  await page.screenshot({ path: `${shots}/01d-规则优先级与被抢先的命中数.png` });
+  // A second rule with the same name is refused; Esc closes only the form.
+  await rulesDraft.getByRole('button', { name: '添加规则', exact: true }).click();
+  await rulesDraft.getByLabel('规则名称', { exact: true }).fill('发票');
+  await rulesDraft.getByLabel('目标文件夹', { exact: true }).fill('别处');
+  await rulesDraft.getByLabel('名称包含的关键词', { exact: true }).fill('x');
+  await expect(rulesDraft).toContainText('已有同名规则');
+  await expect(rulesDraft.getByRole('button', { name: '保存规则', exact: true })).toBeDisabled();
+  await page.screenshot({ path: `${shots}/01e-编辑规则与同名提示.png` });
+  await page.keyboard.press('Escape');
+  await expect(rulesDraft.getByLabel('规则名称', { exact: true })).toHaveCount(0);
+  await expect(rulesDraft).toBeVisible();
+  // List order decides who wins: moving the PDF rule to the top hands it the invoices.
+  await rulesDraft.getByRole('button', { name: '上移“全部 PDF”', exact: true }).click();
+  await rulesDraft.getByRole('button', { name: '上移“全部 PDF”', exact: true }).click();
+  await expect(ruleRow('全部 PDF')).toContainText('命中 2 个');
+  await expect(ruleRow('发票')).toContainText('命中 0 个');
+  await rulesDraft.getByRole('button', { name: '下移“全部 PDF”', exact: true }).click();
+  await rulesDraft.getByRole('button', { name: '下移“全部 PDF”', exact: true }).click();
+  await expect(ruleRow('发票')).toContainText('命中 2 个');
+  // Deleting asks first.
+  await rulesDraft.getByRole('button', { name: '删除“全部 PDF”', exact: true }).click();
+  await rulesDraft.getByRole('button', { name: '保留', exact: true }).click();
+  await expect(ruleRow('全部 PDF')).toBeVisible();
+  await rulesDraft.getByRole('button', { name: '删除“全部 PDF”', exact: true }).click();
+  await rulesDraft.getByRole('button', { name: '确认删除“全部 PDF”', exact: true }).click();
+  await expect(rulesDraft.locator('.rule-row')).toHaveCount(2);
+  await expect(rulesDraft).toContainText('4 个文件');
+  await expect(rulesDraft).toContainText('2 个目标文件夹');
+  await expect(rulesDraft.getByRole('switch', { name: '整理到 财务/发票' })).toHaveAttribute(
+    'aria-checked',
+    'true',
+  );
+  await page.screenshot({ path: `${shots}/01c-我的规则.png` });
+  expect(await noOverflow()).toBe(true);
+  // The rules are on disk in the app data directory, versioned and in order.
+  const saved = JSON.parse(await fs.readFile(rulesFile, 'utf8'));
+  expect(saved.version).toBe(1);
+  expect(saved.rules.map((r) => [r.name, r.folder])).toEqual([
+    ['发票', '财务/发票'],
+    ['旧文件', '归档'],
+  ]);
+  expect(saved.rules[0].match).toEqual({ keywords: ['发票'], extensions: ['pdf'] });
+  expect(saved.rules[1].match).toEqual({ olderThanDays: 365 });
+  expect(await snapshot()).toEqual(original);
+  await rulesDraft.getByRole('button', { name: '采用草案到画布' }).click();
+  await expect(page.locator('.statusbar')).toContainText('12 个文件 · 3 个文件夹');
+  expect(await snapshot()).toEqual(original);
+  await page.keyboard.press('Control+z');
+  await expect(page.locator('.statusbar')).toContainText('12 个文件 · 0 个文件夹');
+  await closeToast();
+  // Reopening the dialog reads the rules back from disk.
+  await page.getByRole('button', { name: '分类草案', exact: true }).click();
+  await rulesDraft.getByRole('button', { name: /我的规则/ }).click();
+  await expect(rulesDraft.locator('.rule-row')).toHaveCount(2);
+  await expect(ruleRow('旧文件')).toContainText('命中 2 个');
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await closeToast();
+  pass(
+    '我的规则：添加/排序/删除、实时命中数、多层文件夹、采用一步撤销，规则以 JSON 存入应用数据目录且重开可读回；磁盘不变',
+  );
+
   // 2. The preview is grouped by target folder and a group can be switched off.
   await strip.getByRole('button', { name: /按文件类型/ }).click();
   const draft = page.getByRole('dialog', { name: '先生成一份分类草案' });
@@ -225,6 +321,38 @@ try {
   await expect(page.getByRole('status')).toContainText('恢复到原位置');
   expect(await snapshot()).toEqual(original);
   pass('恢复上次文件移动后，目录树与原始文件摘要完全一致');
+  // 6. The same engine creates the nested folder chain on disk, and restoring removes it.
+  await closeToast();
+  await page.getByRole('button', { name: '分类草案', exact: true }).click();
+  await rulesDraft.getByRole('button', { name: /我的规则/ }).click();
+  await expect(rulesDraft.locator('.rule-row')).toHaveCount(2);
+  await rulesDraft.getByRole('button', { name: '采用草案到画布' }).click();
+  await expect(page.locator('.statusbar')).toContainText('12 个文件 · 3 个文件夹');
+  await closeToast();
+  await page.getByRole('button', { name: /检查并应用/ }).click();
+  await expect(page.getByRole('dialog', { name: '预览整理结果' })).toBeVisible();
+  await closeToast();
+  await page.getByRole('button', { name: '应用到本地文件', exact: true }).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(page.getByRole('status')).toContainText('已应用并核验');
+  const chained = await snapshot();
+  const at = (...parts) => parts.join(path.sep);
+  expect(chained['财务']).toBe('folder');
+  expect(chained[at('财务', '发票')]).toBe('folder');
+  expect(chained[at('财务', '发票', '发票-三月.pdf')]).toBe(original['发票-三月.pdf']);
+  expect(chained[at('财务', '发票', '发票-四月.pdf')]).toBe(original['发票-四月.pdf']);
+  expect(chained[at('归档', '老文件.txt')]).toBe(original['老文件.txt']);
+  expect(chained[at('归档', '老照片.png')]).toBe(original['老照片.png']);
+  expect(chained['合同.docx']).toBe(original['合同.docx']);
+  expect(Object.values(chained).filter((v) => v !== 'folder')).toHaveLength(12);
+  await page.getByLabel('更多工具').click();
+  await page.getByRole('button', { name: '恢复上次文件移动', exact: true }).first().click();
+  await page.getByRole('button', { name: '恢复文件原位置', exact: true }).click();
+  await expect(page.getByRole('status')).toContainText('恢复到原位置');
+  expect(await snapshot()).toEqual(original);
+  pass(
+    '我的规则真实应用：多层文件夹 财务/发票 与 归档 由引擎创建并核验，未命中的文件原样；恢复后与原始摘要一致',
+  );
   expect(errors).toEqual([]);
   await fs.writeFile(
     '03_测试结果/smart-organize-acceptance.json',
