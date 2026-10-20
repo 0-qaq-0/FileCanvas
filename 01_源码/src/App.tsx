@@ -58,6 +58,9 @@ import { applyFileAdvice } from './domain/file-advice';
 import { AiPanel } from './components/AiPanel';
 import { adoptAiPlan } from './domain/ai-plan';
 import { buildClassificationDraft } from './domain/drafts';
+import type { DraftMode } from './domain/drafts';
+import { suggestRecipes } from './domain/recipes';
+import { SuggestionBar } from './components/SuggestionBar';
 import { RecoveryDialog, RefreshDialog } from './components/OperationDialogs';
 
 function unwrap<T>(response: ApiResult<T>): T {
@@ -105,6 +108,8 @@ export default function App() {
   const [progress, setProgress] = useState<OperationProgress | null>(null);
   const [problem, setProblem] = useState('');
   const [refreshReview, setRefreshReview] = useState<RefreshReview | null>(null);
+  const [draftStart, setDraftStart] = useState<DraftMode | undefined>(undefined);
+  const [dismissedTips, setDismissedTips] = useState<string[]>([]);
   async function refreshOperation() {
     const id = current.current?.project.id;
     if (!id) return;
@@ -441,6 +446,22 @@ export default function App() {
       `${state!.project.rootPath.replace(/[\\/]$/, '')}\\${parts.join('\\')}` !== n.source.path
     );
   }).length;
+  const tipKey = `${state?.project.id ?? ''}:${parentId ?? ''}`;
+  const tipData = state
+    ? suggestRecipes(state, parentId, {
+        contentProject: state.project.demo?.scenario === 'content-project',
+      })
+    : null;
+  const tips =
+    tipData &&
+    tipData.loose >= 4 &&
+    tipData.items.length &&
+    !focused &&
+    pendingCount === 0 &&
+    !operation?.needsRecovery &&
+    !dismissedTips.includes(tipKey)
+      ? tipData
+      : null;
   return (
     <div
       className={`app-shell canvas-first ${focused ? 'focus-mode' : ''} ${dialog ? 'has-dialog' : ''}`}
@@ -644,7 +665,14 @@ export default function App() {
                   恢复上次文件移动
                 </button>
               )}
-              <button className="button small" onClick={() => setDialog('draft')} disabled={busy}>
+              <button
+                className="button small"
+                onClick={() => {
+                  setDraftStart(undefined);
+                  setDialog('draft');
+                }}
+                disabled={busy}
+              >
                 <Layers3 size={14} />
                 分类草案
               </button>
@@ -697,6 +725,17 @@ export default function App() {
                 </button>
               )}
             </div>
+            {tips && (
+              <SuggestionBar
+                loose={tips.loose}
+                items={tips.items}
+                onPick={(id) => {
+                  setDraftStart(id);
+                  setDialog('draft');
+                }}
+                onDismiss={() => setDismissedTips((old) => [...old, tipKey])}
+              />
+            )}
             {selected.length > 0 && (
               <div className="selection-toolbar">
                 <strong>已选择 {selected.length} 项</strong>
@@ -1038,10 +1077,11 @@ export default function App() {
         <DraftDialog
           state={state}
           parentId={parentId}
+          initialMode={draftStart}
           onClose={() => setDialog(null)}
-          onAdopt={(mode) => {
+          onAdopt={(mode, options) => {
             if (!current.current) return;
-            const draft = buildClassificationDraft(current.current, parentId, mode);
+            const draft = buildClassificationDraft(current.current, parentId, mode, options);
             if (!draft.next) {
               notify(draft.issues.join('；'));
               return;
