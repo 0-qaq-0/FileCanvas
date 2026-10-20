@@ -85,7 +85,9 @@ it('rejects a stale plan when the workspace or a file changes after confirmation
   await expect(disk.apply(root, { ...next, name: '已修改草案' }, preview.planId)).rejects.toThrow(
     '计划',
   );
-  await fs.writeFile(path.join(root, '保留.txt'), '外部编辑');
+  // 0.4.1: only the plan's own paths are compared; an edit to an unrelated file
+  // (see reliability.test.ts) no longer invalidates the preview.
+  await fs.writeFile(node('Example.txt').source!.path, '外部编辑了这个待移动文件');
   await expect(disk.apply(root, next, preview.planId)).rejects.toThrow('预览后');
 });
 it('retains history and rebuilds the committed project after project-save interruption', async () => {

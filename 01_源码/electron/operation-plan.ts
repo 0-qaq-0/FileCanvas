@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
+import type { BigIntStats } from 'node:fs';
 import { checkPath, noLinks, readEntry, fileId } from './filesystem';
 import { relativeTarget } from '../src/domain/workspace';
 import type { Project, NodeMap } from '../src/domain/types';
@@ -24,7 +25,10 @@ export async function statOrNull(filename: string) {
 export function identity(stat: { dev: bigint; ino: bigint }) {
   return `${stat.dev}:${stat.ino}`;
 }
+// Counts full-file reads so tests can keep the number of content passes bounded.
+export const hashStats = { reads: 0 };
 export async function hashFile(filename: string) {
+  hashStats.reads++;
   const hash = createHash('sha256');
   for await (const block of createReadStream(filename)) hash.update(block);
   return hash.digest('hex');
@@ -32,6 +36,16 @@ export async function hashFile(filename: string) {
 export function digest(value: unknown) {
   return createHash('sha256').update(JSON.stringify(value)).digest('hex');
 }
+function fingerprint(s: BigIntStats): Fingerprint {
+  return {
+    kind: s.isFile() ? 'file' : s.isDirectory() && !s.isSymbolicLink() ? 'folder' : 'other',
+    identity: identity(s),
+    size: s.size.toString(),
+    modified: s.mtimeNs.toString(),
+  };
+}
+// Whole-tree snapshot. Used by tests and legacy-journal import; applying and
+// verifying a plan look only at the paths the plan touches (see scopedInventory).
 export async function inventory(root: string, excluded?: string): Promise<Inventory> {
   await noLinks(root, root);
   const result: Inventory = {};
@@ -42,16 +56,48 @@ export async function inventory(root: string, excluded?: string): Promise<Invent
       if (filename === excluded) continue;
       const s = await fs.lstat(filename, { bigint: true });
       if (++count > 10000) throw new Error('核对范围超过 10000 项，请选择更小的目录。');
-      result[filename] = {
-        kind: s.isFile() ? 'file' : s.isDirectory() && !s.isSymbolicLink() ? 'folder' : 'other',
-        identity: identity(s),
-        size: s.size.toString(),
-        modified: s.mtimeNs.toString(),
-      };
+      result[filename] = fingerprint(s);
       if (result[filename].kind === 'folder') await visit(filename);
     }
   }
   await visit(root);
+  return result;
+}
+// Fingerprints only the named paths, reporting each under its real on-disk
+// casing (NTFS is case-insensitive, so a case-only rename must be observable).
+// Unrelated entries elsewhere in the root, however many, are never read.
+export async function scopedInventory(
+  root: string,
+  paths: Iterable<string>,
+  listed?: Map<string, string[]>,
+): Promise<Inventory> {
+  await noLinks(root, root);
+  const wanted = new Map<string, Set<string>>();
+  for (const p of paths) {
+    const filename = checkPath(root, p);
+    if (filename === root) continue;
+    const parent = path.dirname(filename);
+    if (!wanted.has(parent)) wanted.set(parent, new Set());
+    wanted.get(parent)!.add(path.basename(filename).toLowerCase());
+  }
+  const result: Inventory = {};
+  for (const [parent, names] of wanted) {
+    await noLinks(root, parent);
+    let entries: string[];
+    try {
+      entries = await fs.readdir(parent);
+    } catch (e) {
+      if (['ENOENT', 'ENOTDIR'].includes((e as NodeJS.ErrnoException).code ?? '')) continue;
+      throw e;
+    }
+    listed?.set(parent, entries);
+    for (const name of entries) {
+      if (!names.has(name.toLowerCase())) continue;
+      const filename = path.join(parent, name);
+      const s = await statOrNull(filename);
+      if (s) result[filename] = fingerprint(s);
+    }
+  }
   return result;
 }
 export function inventoryDigest(entries: Inventory) {
