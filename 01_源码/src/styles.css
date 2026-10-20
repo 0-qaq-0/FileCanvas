@@ -2726,3 +2726,133 @@ button {
   background: #eef7f2;
   border-color: #9fc9b6;
 }
+
+/* Canvas filter (Ctrl+F): dims what does not match and offers to select the rest. */
+.canvas-filter {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 140px;
+  max-width: 420px;
+  border: 1px solid #dbe5df;
+  border-radius: 14px;
+  padding: 2px 8px;
+  background: #fff;
+  color: #8aa497;
+}
+.canvas-filter:focus-within {
+  border-color: #6eaa8f;
+  box-shadow: 0 0 0 2px #b8d8c850;
+}
+.canvas-filter input {
+  flex: 1;
+  min-width: 60px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  font: inherit;
+  font-size: 11px;
+  color: #3f5f52;
+  padding: 3px 0;
+}
+.filter-count {
+  font-size: 10px;
+  color: #4f7a69;
+  white-space: nowrap;
+}
+.canvas-card.dimmed,
+.folder-container.dimmed {
+  opacity: 0.28;
+}
+.canvas-card.filter-hit {
+  border-color: #39866f;
+  box-shadow: 0 0 0 2px #5aa88a45;
+}
+.filter-badge {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  font-size: 9px;
+  color: #2f6f60;
+  background: #e3f3ea;
+  border-radius: 8px;
+  padding: 1px 6px;
+}
+
+/* Batch rename dialog */
+.rename-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 14px;
+  padding: 16px 26px 6px;
+}
+.rename-form label {
+  display: grid;
+  gap: 5px;
+  font-size: 11px;
+  color: #5b7366;
+}
+.rename-form label.wide-field,
+.rename-form .template-chips {
+  grid-column: 1 / -1;
+}
+.rename-form input {
+  border: 1px solid #d5e0da;
+  border-radius: 7px;
+  padding: 7px 9px;
+  font: inherit;
+  color: #2f4a3f;
+  background: #fff;
+  min-width: 0;
+}
+.rename-form input:focus {
+  outline: 0;
+  border-color: #6eaa8f;
+  box-shadow: 0 0 0 2px #b8d8c850;
+}
+.rename-form small {
+  font-size: 10px;
+  color: #91a097;
+}
+.template-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.chip.active {
+  background: #e3f3ea;
+  border-color: #7fb69d;
+}
+.rename-rows {
+  max-height: 260px;
+}
+.rename-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  padding: 7px 8px;
+  border-bottom: 1px solid #eef2ef;
+  font-size: 11px;
+}
+.rename-row span {
+  color: #8fa096;
+  overflow-wrap: anywhere;
+}
+.rename-row strong {
+  color: #3f6354;
+  font-weight: 550;
+  overflow-wrap: anywhere;
+}
+.rename-row small {
+  grid-column: 1 / -1;
+  color: #9caaa1;
+  font-size: 10px;
+}
+.rename-row.bad strong {
+  color: #a4672d;
+}
+.rename-row.bad small {
+  color: #a4672d;
+}

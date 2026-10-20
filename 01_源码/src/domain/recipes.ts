@@ -140,3 +140,9 @@ export function suggestRecipes(
   }
   return { loose: files.length, items };
 }
+// A sensible default name when several files are gathered into a new folder.
+export function suggestFolderName(nodes: CanvasNode[]): string {
+  const files = nodes.filter((n) => n.kind === 'file');
+  const types = new Set(files.map((n) => typeOf(n.name) ?? '其他'));
+  return files.length === nodes.length && types.size === 1 ? [...types][0] : '新建文件夹';
+}

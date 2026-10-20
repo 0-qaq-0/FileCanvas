@@ -53,6 +53,8 @@ export function DraftDialog({
     [state, parentId, mode, staleDays, excluded],
   );
   function choose(next: DraftMode) {
+    // Re-clicking the active recipe must not throw away the user's switches.
+    if (next === mode) return;
     setMode(next);
     setExcluded([]);
     setOpen([]);
