@@ -5,7 +5,12 @@ import os from 'node:os';
 import { createProject, importPaths } from '../../01_源码/electron/filesystem';
 import { DiskOperations } from '../../01_源码/electron/disk-operations';
 import { hashStats, inventory, inventoryDigest } from '../../01_源码/electron/operation-plan';
-import { workspace, importEntries, moveNodes } from '../../01_源码/src/domain/workspace';
+import {
+  workspace,
+  importEntries,
+  moveNodes,
+  renameNode,
+} from '../../01_源码/src/domain/workspace';
 import type { Workspace } from '../../01_源码/src/domain/types';
 
 // Regression tests for the 0.4.1 reliability pass: the plan is verified against
@@ -180,4 +185,24 @@ it('probes only once per folder and sweeps leftovers from an interrupted probe',
   await new DiskOperations(directory).reconcile(project);
   await expect(fs.stat(stale)).rejects.toMatchObject({ code: 'ENOENT' });
   expect((await fs.stat(fresh)).isFile()).toBe(true);
+});
+
+it('applies and restores a case-only folder rename that has files inside', async () => {
+  await fs.mkdir(path.join(root, 'Child'));
+  await fs.writeFile(path.join(root, 'Child', 'x.txt'), '文件夹里的文件');
+  await fs.mkdir(path.join(root, 'Child', 'Inner'));
+  await fs.writeFile(path.join(root, 'Child', 'Inner', 'y.txt'), '更深一层');
+  state = importEntries(state, await importPaths(root, [path.join(root, 'Child')]), null);
+  const before = inventoryDigest(await inventory(root));
+  const project = renameNode(state, node('Child').id, 'child').project;
+  const preview = await disk.preview(root, project);
+  expect(preview.issues).toBe(0);
+  await disk.apply(root, project, preview.planId);
+  expect(await fs.readdir(root)).toContain('child');
+  expect(await fs.readdir(root)).not.toContain('Child');
+  expect(await fs.readFile(path.join(root, 'child', 'Inner', 'y.txt'), 'utf8')).toBe('更深一层');
+  await disk.undo(root, state.project.id);
+  expect(await fs.readdir(root)).toContain('Child');
+  expect(await fs.readdir(root)).not.toContain('child');
+  expect(inventoryDigest(await inventory(root))).toBe(before);
 });

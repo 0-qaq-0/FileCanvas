@@ -72,17 +72,40 @@ export async function scopedInventory(
   listed?: Map<string, string[]>,
 ): Promise<Inventory> {
   await noLinks(root, root);
+  const realRoot = await fs.realpath(root);
+  // The same physical folder can be named with different casing by a source and a
+  // target path (a case-only folder rename). Group by the folder's real on-disk
+  // name so every entry yields exactly one key.
+  const canonical = async (parent: string): Promise<string | null> => {
+    let real: string;
+    try {
+      real = await fs.realpath(parent);
+    } catch (e) {
+      if (['ENOENT', 'ENOTDIR'].includes((e as NodeJS.ErrnoException).code ?? '')) return null;
+      throw e;
+    }
+    const rel = path.relative(realRoot, real);
+    if (path.isAbsolute(rel) || rel === '..' || rel.startsWith(`..${path.sep}`))
+      throw new Error('路径超出已选择的项目根目录。');
+    return rel ? path.join(root, rel) : root;
+  };
   const wanted = new Map<string, Set<string>>();
+  const resolved = new Map<string, string | null>();
   for (const p of paths) {
     const filename = checkPath(root, p);
     if (filename === root) continue;
-    const parent = path.dirname(filename);
+    const typed = path.dirname(filename);
+    if (!resolved.has(typed)) {
+      await noLinks(root, typed);
+      resolved.set(typed, await canonical(typed));
+    }
+    const parent = resolved.get(typed);
+    if (parent === null || parent === undefined) continue;
     if (!wanted.has(parent)) wanted.set(parent, new Set());
     wanted.get(parent)!.add(path.basename(filename).toLowerCase());
   }
   const result: Inventory = {};
   for (const [parent, names] of wanted) {
-    await noLinks(root, parent);
     let entries: string[];
     try {
       entries = await fs.readdir(parent);

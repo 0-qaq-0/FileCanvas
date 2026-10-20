@@ -91,6 +91,7 @@ if (childMode) {
     const get = (name) => Object.values(initial.project.nodes).find((n) => n.name === name);
     let next = moveNodes(initial, [get('Source').id], get('交付').id);
     next = renameNode(next, get('Example.txt').id, 'example.txt');
+    next = renameNode(next, get('Child').id, 'child'); // case-only folder rename with a file inside
     const planned = next.project,
       baseline = inventoryDigest(await inventory(root));
     const hashes = [
