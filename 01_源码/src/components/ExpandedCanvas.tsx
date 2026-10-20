@@ -41,6 +41,7 @@ interface Props {
   onInspect(id: string): void;
   onBrowse(): void;
   onOpen(id: string): void;
+  onContextMenu(id: string, x: number, y: number): void;
   filter: string;
   filterResult: FilterResult | null;
   filterRef: React.RefObject<HTMLInputElement | null>;
@@ -587,6 +588,15 @@ export function Canvas(props: Props) {
                 }}
                 onDoubleClick={() => {
                   if (!isFolder && !moved.current) props.onOpen(node.id);
+                }}
+                onContextMenu={(e) => {
+                  // Expanded folders only answer on their heading; cards anywhere.
+                  if (r.expanded && !(e.target as HTMLElement).closest('.folder-container-heading'))
+                    return;
+                  e.preventDefault();
+                  e.stopPropagation();
+                  if (!selected.includes(node.id)) onSelect([node.id]);
+                  props.onContextMenu(node.id, e.clientX, e.clientY);
                 }}
                 onKeyDown={(e) => {
                   if (e.target !== e.currentTarget) return;

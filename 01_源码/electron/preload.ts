@@ -13,6 +13,7 @@ const api: FileCanvasApi = {
   undoDisk: (projectId) => ipcRenderer.invoke('fc:undo-disk', projectId),
   diskUndoAvailable: (projectId) => ipcRenderer.invoke('fc:disk-undo-available', projectId),
   openFile: (path) => ipcRenderer.invoke('fc:open-file', path),
+  revealFile: (path) => ipcRenderer.invoke('fc:reveal-file', path),
   fileAiAccess: (enabled) => ipcRenderer.invoke('fc:file-ai-access', enabled),
   explainFile: (project, id, refresh) =>
     ipcRenderer.invoke('fc:file-explain', project, id, refresh),

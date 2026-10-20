@@ -162,6 +162,7 @@ export interface FileCanvasApi {
   prepareRefresh(project: Project): Promise<ApiResult<RefreshReview>>;
   onOperationProgress(callback: (progress: OperationProgress) => void): () => void;
   openFile(path: string): Promise<ApiResult<{ path: string; opened: boolean; method: string }>>;
+  revealFile(path: string): Promise<ApiResult<boolean>>;
   fileAiAccess(enabled?: boolean): Promise<ApiResult<FileAiAccess>>;
   explainFile(project: Project, id: string, refresh?: boolean): Promise<ApiResult<FileAdvice>>;
   followupFile(project: Project, id: string, question: string): Promise<ApiResult<string>>;

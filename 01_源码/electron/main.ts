@@ -230,6 +230,12 @@ app.whenReady().then(async () => {
     }
     return { path: entry.path, opened: true, method };
   });
+  handle('fc:reveal-file', async (filename) => {
+    // readEntry keeps the request inside the project root and refuses links.
+    const entry = await readEntry(root(), filename);
+    if (!e2e) shell.showItemInFolder(entry.path);
+    return true;
+  });
   handle('fc:ai-settings', () => ai.settings());
   handle('fc:ai-save', (settings) => ai.save(settings));
   handle('fc:ai-test', () => ai.test());

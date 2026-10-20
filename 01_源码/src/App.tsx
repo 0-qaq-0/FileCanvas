@@ -25,6 +25,9 @@ import {
   MoreHorizontal,
   RefreshCw,
   AlertTriangle,
+  Eye,
+  ExternalLink,
+  Expand,
 } from 'lucide-react';
 import type {
   ApiResult,
@@ -55,6 +58,8 @@ import { Canvas } from './components/ExpandedCanvas';
 import { Modal, MoveDialog, PreviewDialog, ProjectsDialog } from './components/Dialogs';
 import { DraftDialog } from './components/DraftDialog';
 import { BatchRenameDialog } from './components/BatchRenameDialog';
+import { ContextMenu } from './components/ContextMenu';
+import type { MenuItem } from './components/ContextMenu';
 import { applyBatchRename } from './domain/batch-rename';
 import { FileInspector } from './components/FileInspector';
 import { applyFileAdvice } from './domain/file-advice';
@@ -115,6 +120,7 @@ export default function App() {
   const [problem, setProblem] = useState('');
   const [refreshReview, setRefreshReview] = useState<RefreshReview | null>(null);
   const [draftStart, setDraftStart] = useState<DraftMode | undefined>(undefined);
+  const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null);
   const [filter, setFilter] = useState('');
   const filterRef = useRef<HTMLInputElement>(null);
   const [dismissedTips, setDismissedTips] = useState<string[]>([]);
@@ -232,6 +238,7 @@ export default function App() {
       if (
         dialog ||
         busy ||
+        menu ||
         (event.target as HTMLElement).closest('input, textarea, [contenteditable]')
       )
         return;
@@ -285,7 +292,7 @@ export default function App() {
     }
     window.addEventListener('keydown', keyboard);
     return () => window.removeEventListener('keydown', keyboard);
-  }, [state, dialog, selected, parentId, busy]);
+  }, [state, dialog, selected, parentId, busy, menu]);
   async function run(task: () => Promise<void>) {
     if (operationBusy.current) return;
     operationBusy.current = true;
@@ -422,6 +429,61 @@ export default function App() {
               : '已用系统默认应用打开；返回后会刷新预览。',
           );
       });
+  }
+  function revealFile(id: string) {
+    const source = current.current?.project.nodes[id]?.source;
+    if (source)
+      void run(async () => {
+        unwrap(await window.fileCanvas.revealFile(source.path));
+        notify('已在资源管理器中定位该文件。');
+      });
+  }
+  function menuItems(id: string): MenuItem[] {
+    const node = current.current?.project.nodes[id];
+    if (!node) return [];
+    const many = selected.length > 1 && selected.includes(id);
+    const items: MenuItem[] = [];
+    if (!many && node.kind === 'file')
+      items.push({
+        label: '查看内容和解释',
+        icon: <Eye size={14} />,
+        onClick: () => {
+          setInspectId(id);
+          setShowAi(false);
+        },
+      });
+    if (!many && node.kind === 'folder')
+      items.push({
+        label: '单独查看此文件夹',
+        icon: <Expand size={14} />,
+        onClick: () => enter(id),
+      });
+    if (!many && node.kind === 'file' && node.source)
+      items.push({
+        label: '用系统应用打开',
+        icon: <ExternalLink size={14} />,
+        onClick: () => openFile(id),
+      });
+    if (!many && node.source)
+      items.push({
+        label: '在资源管理器中显示',
+        icon: <FolderOpen size={14} />,
+        onClick: () => revealFile(id),
+      });
+    items.push(
+      {
+        label: '移动到…',
+        icon: <MoveRight size={14} />,
+        onClick: () => setDialog('move'),
+        group: items.length > 0,
+      },
+      { label: '移入新文件夹', icon: <FolderPlus size={14} />, onClick: openCollect },
+      many
+        ? { label: '批量重命名', icon: <Pencil size={14} />, onClick: () => setDialog('batch') }
+        : { label: '重命名', icon: <Pencil size={14} />, onClick: () => openRename(id) },
+      { label: '移出画布', icon: <X size={14} />, onClick: remove, danger: true, group: true },
+    );
+    return items;
   }
   function adoptFile(id: string, advice: FileAdvice) {
     edit((s) => applyFileAdvice(s, id, advice));
@@ -835,6 +897,7 @@ export default function App() {
               }}
               onBrowse={() => setShowBrowser(true)}
               onOpen={openFile}
+              onContextMenu={(id, x, y) => setMenu({ id, x, y })}
               filter={filter}
               filterResult={filterResult}
               filterRef={filterRef}
@@ -997,6 +1060,14 @@ export default function App() {
             <X size={14} />
           </button>
         </div>
+      )}
+      {menu && (
+        <ContextMenu
+          x={menu.x}
+          y={menu.y}
+          items={menuItems(menu.id)}
+          onClose={() => setMenu(null)}
+        />
       )}
       {(busy || starting) && (
         <div className="busy-overlay">
@@ -1204,8 +1275,9 @@ export default function App() {
             </p>
             <p>
               3.
-              点击文件夹同屏展开，直接拖入或拖出容器；单击文件看内容和解释，双击用系统应用打开。多选可批量移动。F2
-              重命名，Ctrl+Z / Ctrl+Y 撤销和重做。
+              点击文件夹同屏展开，直接拖入或拖出容器；单击文件看内容和解释，双击用系统应用打开。多选可批量移动。右键卡片有常用操作；Ctrl+F
+              筛选当前层，“选中匹配项”后可“移入新文件夹”（Ctrl+Shift+N）；选中多项按 F2
+              批量重命名。Ctrl+Z / Ctrl+Y 撤销和重做。
             </p>
             <p>
               4. 自动保存包含虚拟结构与各层坐标，Ctrl+S
@@ -1218,7 +1290,7 @@ export default function App() {
             </p>
             <p>
               6.
-              “分类草案”按文件名与扩展名提出建议，采用后仍是虚拟结构；不确定的用途由你调整。预览中的“结构对照”可比较两棵树，并导出
+              “分类草案”提供四种整理方式（内容项目、按文件类型、按修改月份、久未修改归档），按目标文件夹分组预览，可关闭不想整理的组；采用后仍是虚拟结构，不确定的由你调整。预览中的“结构对照”可比较两棵树，并导出
               Markdown 方案到软件自己的 exports 目录。
             </p>
             <p>7. “体验示例”每次创建新的真实样例副本并自动加入画布，不会覆盖你已经保存的项目。</p>
