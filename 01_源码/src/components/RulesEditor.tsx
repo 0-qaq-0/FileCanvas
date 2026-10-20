@@ -246,7 +246,7 @@ export function RulesEditor({
           {error}
         </p>
       )}
-      {!ready && <p className="quiet-empty">正在读取已保存的规则…</p>}
+      {!ready && !error && <p className="quiet-empty">正在读取已保存的规则…</p>}
       {ready && !rules.length && !editing && (
         <p className="quiet-empty">
           还没有规则。点“添加规则”写第一条，写好后会保存在本机，换个文件夹也能直接用。
