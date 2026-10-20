@@ -40,6 +40,7 @@ export interface RuleHit {
 // "财务\发票" and " 财务 / 发票/" mean the same thing. Each segment must be a legal
 // Windows name (the same check the canvas applies to folder names).
 export function parseFolderPath(input: string): string[] {
+  if (input.length > 1000) throw new Error('目标文件夹路径过长。');
   const parts = input
     .split(/[\\/]+/)
     .map((part) => part.trim())

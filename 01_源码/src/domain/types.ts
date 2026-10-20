@@ -215,6 +215,8 @@ export interface FileCanvasApi {
   restore(): Promise<ApiResult<Project | null>>;
   preview(project: Project): Promise<ApiResult<Preview>>;
   openDemo(): Promise<ApiResult<Project>>;
+  loadRules(): Promise<ApiResult<RulesLoad>>;
+  saveRules(rules: OrganizeRule[]): Promise<ApiResult<OrganizeRule[]>>;
   exportPlan(
     project: Project,
   ): Promise<ApiResult<{ path: string; checkedAt: string; preview: Preview }>>;
