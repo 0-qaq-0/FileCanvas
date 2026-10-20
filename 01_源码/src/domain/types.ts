@@ -151,6 +151,26 @@ export interface FileAiAccess {
   baseUrl: string;
   model: string;
 }
+// A saved organizing rule. keywords and extensions are alternatives (either one
+// qualifies a file); olderThanDays and minSizeMB further narrow it. See domain/rules.ts.
+export interface RuleMatch {
+  keywords?: string[];
+  extensions?: string[];
+  olderThanDays?: number;
+  minSizeMB?: number;
+}
+export interface OrganizeRule {
+  id: string;
+  name: string;
+  match: RuleMatch;
+  // Target folder, possibly a nested path such as 财务/发票.
+  folder: string;
+}
+export interface RulesLoad {
+  rules: OrganizeRule[];
+  // Set when a damaged rules file was moved aside and the list starts empty.
+  notice?: string;
+}
 export interface FileCanvasApi {
   applyChanges(
     project: Project,
