@@ -10,10 +10,13 @@ import {
   Expand,
   ExternalLink,
   Home,
+  Search,
+  X,
 } from 'lucide-react';
 import type { CanvasNode, FileContent, NodeMap } from '../domain/types';
 import { children, relativeTarget, topLevelSelection, isDescendant } from '../domain/workspace';
 import { expandedLayout, folderAt } from '../domain/canvas-layout';
+import type { FilterResult } from '../domain/filter';
 import { FileIcon, formatSize } from './FileIcon';
 interface Props {
   rootPath: string;
@@ -38,6 +41,11 @@ interface Props {
   onInspect(id: string): void;
   onBrowse(): void;
   onOpen(id: string): void;
+  filter: string;
+  filterResult: FilterResult | null;
+  filterRef: React.RefObject<HTMLInputElement | null>;
+  onFilterChange(query: string): void;
+  onSelectMatches(): void;
 }
 function CardVisual({ node }: { node: CanvasNode }) {
   const [content, setContent] = useState<FileContent | null>(null);
@@ -392,6 +400,44 @@ export function Canvas(props: Props) {
           <MousePointer2 size={13} />
           {expanded.size ? '展开式整理 · 自动排布' : '整理画布'} · {layout.length} 项
         </span>
+        <div className="canvas-filter">
+          <Search size={13} />
+          <input
+            ref={props.filterRef}
+            aria-label="筛选当前层文件"
+            placeholder="筛选文件名 (Ctrl+F)"
+            value={props.filter}
+            onChange={(e) => props.onFilterChange(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') {
+                props.onFilterChange('');
+                e.currentTarget.blur();
+              }
+              if (e.key === 'Enter') props.onSelectMatches();
+            }}
+          />
+          {props.filterResult && (
+            <>
+              <span className="filter-count">{props.filterResult.matches.size} 项匹配</span>
+              <button
+                className="text-button"
+                disabled={!props.filterResult.matches.size}
+                onClick={props.onSelectMatches}
+              >
+                选中匹配项
+              </button>
+            </>
+          )}
+          {props.filter && (
+            <button
+              className="icon-button"
+              aria-label="清除筛选"
+              onClick={() => props.onFilterChange('')}
+            >
+              <X size={12} />
+            </button>
+          )}
+        </div>
         <div>
           <button
             className="text-button"
@@ -501,6 +547,9 @@ export function Canvas(props: Props) {
             const node = nodes[r.id],
               p = draft[r.id] ?? r,
               isFolder = node.kind === 'folder';
+            const hit = !!props.filterResult?.matches.has(node.id),
+              inside = props.filterResult?.inside.get(node.id) ?? 0,
+              dim = !!props.filterResult && !hit && !inside;
             return (
               <div
                 key={node.id}
@@ -513,7 +562,7 @@ export function Canvas(props: Props) {
                 data-name={node.name}
                 data-expanded={r.expanded}
                 data-folder-id={isFolder ? node.id : undefined}
-                className={`${r.expanded ? 'folder-container' : 'canvas-card'} ${selected.includes(node.id) ? 'selected' : ''} ${draft[node.id] ? 'dragging' : ''} ${hover === node.id ? 'drop-target' : ''} ${props.highlighted === node.id ? 'recommended-target' : ''}`}
+                className={`${r.expanded ? 'folder-container' : 'canvas-card'} ${selected.includes(node.id) ? 'selected' : ''} ${draft[node.id] ? 'dragging' : ''} ${hover === node.id ? 'drop-target' : ''} ${props.highlighted === node.id ? 'recommended-target' : ''} ${dim ? 'dimmed' : ''} ${hit ? 'filter-hit' : ''}`}
                 style={{
                   left: p.x,
                   top: p.y,
@@ -595,6 +644,7 @@ export function Canvas(props: Props) {
                     {pendingLabel(node) && (
                       <span className="pending-badge card-pending">{pendingLabel(node)}</span>
                     )}
+                    {inside > 0 && !hit && <span className="filter-badge">含 {inside} 个匹配</span>}
                     <CardVisual node={node} />
                     <span className="card-name" title={node.name}>
                       {node.name}

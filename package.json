@@ -18,6 +18,7 @@
     "test:demo": "npm run build && node 02_测试/交互测试/demo.e2e.mjs",
     "test:ai": "npm run build && node 02_测试/交互测试/canvas-ai.e2e.mjs",
     "test:expanded": "node 02_测试/交互测试/expanded-flow.e2e.mjs",
+    "test:smart": "npm run build && node 02_测试/交互测试/smart-organize.e2e.mjs",
     "source:zip": "node 04_构建脚本/package-source.mjs"
   },
   "dependencies": {

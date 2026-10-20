@@ -48,18 +48,22 @@ import {
   undo,
   workspace,
   isDescendant,
+  moveToNewFolder,
 } from './domain/workspace';
 import { Browser } from './components/Browser';
 import { Canvas } from './components/ExpandedCanvas';
 import { Modal, MoveDialog, PreviewDialog, ProjectsDialog } from './components/Dialogs';
 import { DraftDialog } from './components/DraftDialog';
+import { BatchRenameDialog } from './components/BatchRenameDialog';
+import { applyBatchRename } from './domain/batch-rename';
 import { FileInspector } from './components/FileInspector';
 import { applyFileAdvice } from './domain/file-advice';
 import { AiPanel } from './components/AiPanel';
 import { adoptAiPlan } from './domain/ai-plan';
 import { buildClassificationDraft } from './domain/drafts';
 import type { DraftMode } from './domain/drafts';
-import { suggestRecipes } from './domain/recipes';
+import { suggestFolderName, suggestRecipes } from './domain/recipes';
+import { filterLayer, selectableMatches } from './domain/filter';
 import { SuggestionBar } from './components/SuggestionBar';
 import { RecoveryDialog, RefreshDialog } from './components/OperationDialogs';
 
@@ -80,6 +84,8 @@ export default function App() {
   const [starting, setStarting] = useState(true);
   const [dialog, setDialog] = useState<
     | 'create'
+    | 'collect'
+    | 'batch'
     | 'rename'
     | 'projects'
     | 'move'
@@ -109,6 +115,8 @@ export default function App() {
   const [problem, setProblem] = useState('');
   const [refreshReview, setRefreshReview] = useState<RefreshReview | null>(null);
   const [draftStart, setDraftStart] = useState<DraftMode | undefined>(undefined);
+  const [filter, setFilter] = useState('');
+  const filterRef = useRef<HTMLInputElement>(null);
   const [dismissedTips, setDismissedTips] = useState<string[]>([]);
   async function refreshOperation() {
     const id = current.current?.project.id;
@@ -141,6 +149,7 @@ export default function App() {
       setOperation(null);
       setCanUndoDisk(false);
       setProblem('');
+      setFilter('');
     }
     current.current = next;
     setState(next);
@@ -227,6 +236,12 @@ export default function App() {
       )
         return;
       if (event.ctrlKey || event.metaKey) {
+        if (event.key.toLowerCase() === 'f' && state) {
+          event.preventDefault();
+          filterRef.current?.focus();
+          filterRef.current?.select();
+          return;
+        }
         if (event.key.toLowerCase() === 'z') {
           event.preventDefault();
           edit(event.shiftKey ? redo : undo);
@@ -248,9 +263,23 @@ export default function App() {
           );
         }
       }
+      if (
+        (event.ctrlKey || event.metaKey) &&
+        event.shiftKey &&
+        event.key.toLowerCase() === 'n' &&
+        selected.length
+      ) {
+        event.preventDefault();
+        openCollect();
+        return;
+      }
       if (event.key === 'F2' && selected.length === 1) {
         event.preventDefault();
         openRename(selected[0]);
+      }
+      if (event.key === 'F2' && selected.length > 1) {
+        event.preventDefault();
+        setDialog('batch');
       }
       if (event.key === 'Escape') setSelected([]);
     }
@@ -328,6 +357,7 @@ export default function App() {
     });
   }
   function enter(id: string | null) {
+    setFilter('');
     setParentId(id);
     setSelected([]);
     setInspectId(null);
@@ -336,6 +366,13 @@ export default function App() {
     setName('新建文件夹');
     setNameError('');
     setDialog('create');
+  }
+  function openCollect() {
+    const nodes = current.current?.project.nodes;
+    if (!nodes || !selected.length) return;
+    setName(suggestFolderName(selected.flatMap((id) => (nodes[id] ? [nodes[id]] : []))));
+    setNameError('');
+    setDialog('collect');
   }
   function openRename(id: string) {
     if (!current.current?.project.nodes[id]) return;
@@ -348,6 +385,17 @@ export default function App() {
     event.preventDefault();
     if (!current.current) return;
     try {
+      if (dialog === 'collect') {
+        const folderId = crypto.randomUUID();
+        const count = selected.length;
+        replace(moveToNewFolder(current.current, selected, name, parentId, folderId));
+        setSelected([]);
+        setDialog(null);
+        setHighlighted(folderId);
+        setTimeout(() => setHighlighted((old) => (old === folderId ? null : old)), 2600);
+        notify(`已把 ${count} 项移入新文件夹“${name}”，Ctrl+Z 可撤销。真实文件尚未移动。`);
+        return;
+      }
       const next =
         dialog === 'create'
           ? addFolder(current.current, name, parentId)
@@ -446,6 +494,7 @@ export default function App() {
       `${state!.project.rootPath.replace(/[\\/]$/, '')}\\${parts.join('\\')}` !== n.source.path
     );
   }).length;
+  const filterResult = state ? filterLayer(nodes, parentId, filter) : null;
   const tipKey = `${state?.project.id ?? ''}:${parentId ?? ''}`;
   const tipData = state
     ? suggestRecipes(state, parentId, {
@@ -743,14 +792,21 @@ export default function App() {
                   <MoveRight size={14} />
                   移动到…
                 </button>
-                <button
-                  className="text-button"
-                  disabled={selected.length !== 1}
-                  onClick={() => openRename(selected[0])}
-                >
-                  <Pencil size={14} />
-                  重命名
+                <button className="text-button" onClick={openCollect}>
+                  <FolderPlus size={14} />
+                  移入新文件夹
                 </button>
+                {selected.length > 1 ? (
+                  <button className="text-button" onClick={() => setDialog('batch')}>
+                    <Pencil size={14} />
+                    批量重命名
+                  </button>
+                ) : (
+                  <button className="text-button" onClick={() => openRename(selected[0])}>
+                    <Pencil size={14} />
+                    重命名
+                  </button>
+                )}
                 <button className="text-button" onClick={remove}>
                   <X size={14} />
                   移出画布
@@ -779,6 +835,16 @@ export default function App() {
               }}
               onBrowse={() => setShowBrowser(true)}
               onOpen={openFile}
+              filter={filter}
+              filterResult={filterResult}
+              filterRef={filterRef}
+              onFilterChange={setFilter}
+              onSelectMatches={() => {
+                if (!filterResult?.matches.size) return;
+                const ids = selectableMatches(nodes, filterResult);
+                setSelected(ids);
+                notify(`已选中 ${ids.length} 项匹配的条目，可移入新文件夹或批量处理。`);
+              }}
               highlighted={highlighted}
               onMove={move}
               onImport={add}
@@ -944,10 +1010,20 @@ export default function App() {
           </div>
         </div>
       )}
-      {(dialog === 'create' || dialog === 'rename') && (
+      {(dialog === 'create' || dialog === 'collect' || dialog === 'rename') && (
         <Modal
-          title={dialog === 'create' ? '新建虚拟文件夹' : '重命名虚拟条目'}
-          subtitle="仅修改虚拟整理项目，原始文件不会改变。"
+          title={
+            dialog === 'create'
+              ? '新建虚拟文件夹'
+              : dialog === 'collect'
+                ? `把 ${selected.length} 项移入新文件夹`
+                : '重命名虚拟条目'
+          }
+          subtitle={
+            dialog === 'collect'
+              ? '新文件夹建在选中项所在的位置；仅修改虚拟整理项目，原始文件不会改变。'
+              : '仅修改虚拟整理项目，原始文件不会改变。'
+          }
           onClose={() => setDialog(null)}
         >
           <form onSubmit={submitName} className="name-form">
@@ -975,7 +1051,7 @@ export default function App() {
                 取消
               </button>
               <button className="button primary" type="submit">
-                {dialog === 'create' ? '创建' : '确认重命名'}
+                {dialog === 'create' ? '创建' : dialog === 'collect' ? '创建并移入' : '确认重命名'}
               </button>
             </div>
           </form>
@@ -995,6 +1071,25 @@ export default function App() {
               notify('已恢复项目结构与布局。虚拟撤销历史从此次打开开始记录。');
             })
           }
+        />
+      )}
+      {dialog === 'batch' && (
+        <BatchRenameDialog
+          nodes={nodes}
+          ids={selected}
+          onClose={() => setDialog(null)}
+          onApply={(rows) => {
+            try {
+              if (!current.current) return;
+              replace(applyBatchRename(current.current, rows));
+              setDialog(null);
+              notify(
+                `已在计划中批量重命名 ${rows.filter((r) => r.changed).length} 项，Ctrl+Z 可撤销。真实文件尚未改名。`,
+              );
+            } catch (error) {
+              notify((error as Error).message);
+            }
+          }}
         />
       )}
       {dialog === 'move' && (

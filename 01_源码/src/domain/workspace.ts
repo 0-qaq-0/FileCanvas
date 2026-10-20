@@ -186,6 +186,41 @@ export function moveNodes(state: Workspace, ids: string[], parentId: string | nu
     });
   });
 }
+// Finder-style "new folder with selection": one undo step creates the folder where
+// the selection lives (or at the current level when it is spread over several
+// folders) and moves the selected items into it.
+export function moveToNewFolder(
+  state: Workspace,
+  ids: string[],
+  name: string,
+  parentId: string | null,
+  folderId: string = crypto.randomUUID(),
+): Workspace {
+  return commit(state, '移入新文件夹', (nodes) => {
+    const moving = topLevelSelection(nodes, ids);
+    if (!moving.length) throw new Error('请先选择要移动的条目。');
+    const parents = new Set(moving.map((id) => nodes[id].parentId));
+    const where = parents.size === 1 ? [...parents][0] : parentId;
+    if (children(nodes, where).some((n) => n.name.toLowerCase() === name.toLowerCase()))
+      throw new Error(`这里已有“${name}”，请换一个名称，或使用“移动到…”。`);
+    if (moving.some((id) => isDescendant(nodes, where, id)))
+      throw new Error('不能把文件夹放入自己或自己的子文件夹。');
+    nodes[folderId] = {
+      id: folderId,
+      name,
+      kind: 'folder',
+      parentId: where,
+      source: null,
+      ...vacantPosition(nodes, where, children(nodes, where).length),
+    };
+    moving.forEach((id, index) => {
+      const position = vacantPosition(nodes, folderId, index);
+      nodes[id].parentId = folderId;
+      nodes[id].x = position.x;
+      nodes[id].y = position.y;
+    });
+  });
+}
 export function addFolder(state: Workspace, name: string, parentId: string | null): Workspace {
   return commit(state, '新建虚拟文件夹', (nodes) => {
     const id = crypto.randomUUID();
