@@ -2554,7 +2554,7 @@ button {
 /* Smart organizing: recipe presets, grouped draft preview, suggestion strip. */
 .draft-presets {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
 }
 .preset {
@@ -2891,4 +2891,190 @@ button {
 }
 .context-menu button.danger {
   color: #a4672d;
+}
+
+/* Draft dialog body: presets, rules editor and preview scroll together above the footer. */
+.draft-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+.draft-body > * {
+  flex-shrink: 0;
+}
+.draft-body > .draft-rows:not(.flow) {
+  flex-shrink: 1;
+}
+.draft-rows.flow {
+  overflow: visible;
+}
+
+/* Saved rules editor ("我的规则") */
+.rules-editor {
+  display: grid;
+  gap: 8px;
+  margin: 4px 26px 8px;
+  padding: 12px 14px;
+  border: 1px solid #e0e7e3;
+  border-radius: 9px;
+  background: #fbfdfc;
+}
+.rules-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+}
+.rules-head strong {
+  font-size: 12px;
+  font-weight: 600;
+  color: #3f6354;
+}
+.rules-head small {
+  font-size: 10px;
+  color: #8fa096;
+}
+.rules-editor .quiet-empty {
+  padding: 10px 6px;
+}
+.rule-list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.rule-row {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid #e6ede9;
+  border-radius: 8px;
+  background: #fff;
+}
+.rule-index {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #e7f1ec;
+  color: #4f7a69;
+  font-size: 10px;
+}
+.rule-main {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.rule-main strong {
+  font-size: 12px;
+  font-weight: 600;
+  color: #3f6354;
+  overflow-wrap: anywhere;
+}
+.rule-main span {
+  font-size: 10px;
+  color: #8fa096;
+  overflow-wrap: anywhere;
+}
+.rule-main em {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-style: normal;
+  font-size: 10px;
+  color: #397f77;
+  overflow-wrap: anywhere;
+}
+.rule-count {
+  display: grid;
+  gap: 2px;
+  text-align: right;
+  font-size: 11px;
+  color: #4f7a69;
+}
+.rule-count small {
+  font-size: 9px;
+  color: #a4672d;
+}
+.rule-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.rule-actions.confirm {
+  gap: 6px;
+}
+.rule-actions .icon-button {
+  width: 26px;
+  height: 26px;
+}
+.rule-actions .icon-button:disabled {
+  opacity: 0.3;
+}
+.button.danger {
+  color: #a4672d;
+  border-color: #e7cdb6;
+}
+.rule-add {
+  justify-self: start;
+}
+.rule-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 12px;
+  padding: 12px;
+  border: 1px solid #cfe2d8;
+  border-radius: 8px;
+  background: #fff;
+}
+.rule-form label {
+  display: grid;
+  gap: 4px;
+  font-size: 11px;
+  color: #5b7366;
+}
+.rule-form-foot {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.rule-form-foot .rule-hint {
+  flex: 1;
+  min-width: 0;
+}
+.rule-form input {
+  min-width: 0;
+  padding: 6px 9px;
+  border: 1px solid #d5e0da;
+  border-radius: 7px;
+  background: #fff;
+  color: #2f4a3f;
+  font: inherit;
+}
+.rule-form input:focus {
+  outline: 0;
+  border-color: #6eaa8f;
+  box-shadow: 0 0 0 2px #b8d8c850;
+}
+.rule-hint {
+  margin: 0;
+  font-size: 10px;
+  line-height: 1.7;
+  color: #8fa096;
+}
+.rule-hint.bad {
+  color: #a4672d;
+}
+.rule-form-actions {
+  display: flex;
+  flex-shrink: 0;
+  gap: 8px;
 }
