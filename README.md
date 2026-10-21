@@ -66,4 +66,4 @@ EXE 使用 `%APPDATA%\FileCanvas`，开发版使用 `%APPDATA%\FileCanvas-Develo
 
 ## 许可
 
-目前没有选择开源许可证（`package.json` 中为 `UNLICENSED`），保留所有权利。
+本项目采用 [PolyForm Noncommercial License 1.0.0](LICENSE)：源码公开，可以免费用于个人学习、研究、爱好项目，以及学校、公益组织等非商业用途，也可以修改和再分发，但必须随附许可证和其中的 `Required Notice` 行。**不得用于商业用途，包括出售、收费分发，或把它用在商业产品和服务里。** 这不是 OSI 定义的开源许可证；条款以 [LICENSE](LICENSE) 英文原文为准。Electron、React 等第三方组件仍按各自的许可证使用。
