@@ -168,7 +168,16 @@ export function topLevelSelection(nodes: NodeMap, ids: string[]): string[] {
       !ids.some((other) => other !== id && isDescendant(nodes, nodes[id].parentId, other)),
   );
 }
-export function moveNodes(state: Workspace, ids: string[], parentId: string | null): Workspace {
+/**
+ * `positions` are the spots the user released the items on; without one an item takes the next
+ * free slot of its new folder. Items already in `parentId` are simply placed again.
+ */
+export function moveNodes(
+  state: Workspace,
+  ids: string[],
+  parentId: string | null,
+  positions?: Record<string, { x: number; y: number }>,
+): Workspace {
   return commit(state, '移动到文件夹', (nodes) => {
     if (parentId && nodes[parentId]?.kind !== 'folder') throw new Error('目标文件夹不存在。');
     const moving = topLevelSelection(nodes, ids);
@@ -179,7 +188,13 @@ export function moveNodes(state: Workspace, ids: string[], parentId: string | nu
     moving.forEach((id) => {
       if (isDescendant(nodes, parentId, id))
         throw new Error('不能把文件夹放入自己或自己的子文件夹。');
-      const position = vacantPosition(nodes, parentId, children(nodes, parentId).length);
+      const given = positions?.[id];
+      const position = given
+        ? {
+            x: Math.round(Math.max(0, Math.min(49000, given.x))),
+            y: Math.round(Math.max(0, Math.min(49000, given.y))),
+          }
+        : vacantPosition(nodes, parentId, children(nodes, parentId).length);
       nodes[id].parentId = parentId;
       nodes[id].x = position.x;
       nodes[id].y = position.y;

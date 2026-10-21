@@ -1,0 +1,234 @@
+/* Tiles, groups and list views, plus the view switcher in the navigation bar. */
+.view-switch {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 10px;
+  background: #eaf1ee;
+}
+.view-switch button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 9px;
+  border-radius: 7px;
+  font-size: 12px;
+  color: var(--fc-muted);
+}
+.view-switch button:hover {
+  color: var(--fc-brand-ink);
+}
+.view-switch button[aria-pressed='true'] {
+  background: #fff;
+  color: var(--fc-brand-ink);
+  font-weight: 650;
+  box-shadow: var(--fc-shadow-1);
+}
+.tool-select {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--fc-muted);
+}
+.tool-select select {
+  padding: 3px 6px;
+  border: 1px solid var(--fc-line-strong);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--fc-ink);
+  font: inherit;
+}
+
+/* The listing views scroll like the canvas and share its background setting. */
+.listing-scroll {
+  background-image: radial-gradient(circle, rgba(27, 101, 89, 0.17) 1px, transparent 1.3px);
+  background-size: 24px 24px;
+}
+.app-shell.bg-grid .listing-scroll {
+  background-image:
+    linear-gradient(rgba(27, 101, 89, 0.09) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(27, 101, 89, 0.09) 1px, transparent 1px);
+}
+.app-shell.bg-plain .listing-scroll {
+  background-image: none;
+}
+.listing-scroll:has(.list-wrap) {
+  background: #fff;
+  background-image: none;
+}
+.listing-zoom {
+  min-height: 100%;
+}
+.tile-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, 136px);
+  justify-content: start;
+  gap: 16px;
+  padding: 20px 24px 28px;
+}
+.canvas-card.tile {
+  position: relative;
+  left: auto;
+  top: auto;
+}
+.tile-group + .tile-group {
+  border-top: 1px solid var(--fc-line);
+}
+.group-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 14px 24px 0;
+  color: var(--fc-ink);
+  font-size: 14px;
+  text-align: left;
+}
+.group-head strong {
+  font-weight: 650;
+}
+.group-head span {
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--fc-brand-soft);
+  color: var(--fc-brand-ink);
+  font-size: 11px;
+  font-weight: 600;
+}
+.group-head svg {
+  color: var(--fc-muted);
+}
+
+.list-wrap {
+  min-width: 560px;
+}
+.list-head,
+.list-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) 88px 84px 148px 112px;
+  align-items: center;
+  gap: 12px;
+  padding: 0 20px;
+}
+.list-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  height: 34px;
+  background: #fbfcfb;
+  border-bottom: 1px solid var(--fc-line);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--fc-muted);
+}
+.list-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px;
+  margin-left: -6px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--fc-muted);
+}
+.list-sort:hover,
+.list-sort.active {
+  color: var(--fc-brand-ink);
+}
+.list-row {
+  height: 38px;
+  background: #fff;
+  border-bottom: 1px solid #eef2f0;
+  font-size: 13px;
+  user-select: none;
+}
+.list-row:hover {
+  background: var(--fc-brand-soft);
+}
+.list-row.selected {
+  background: #e1f1ea;
+  box-shadow: inset 3px 0 0 var(--fc-brand);
+}
+.list-row.drop-target {
+  background: var(--fc-brand-soft-2);
+  outline: 2px solid var(--fc-brand);
+  outline-offset: -2px;
+}
+.list-row:focus-visible {
+  outline: 2px solid var(--fc-brand);
+  outline-offset: -2px;
+}
+.list-row.dimmed {
+  opacity: 0.3;
+}
+.list-row.filter-hit {
+  box-shadow: inset 3px 0 0 var(--fc-brand);
+}
+.list-row .col-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding-left: calc(var(--depth, 0) * 22px);
+}
+.row-toggle {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+  color: var(--fc-muted);
+}
+button.row-toggle:hover {
+  background: rgba(27, 101, 89, 0.12);
+  color: var(--fc-brand-ink);
+}
+.row-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 550;
+  color: var(--fc-ink);
+}
+.list-row .col-type,
+.list-row .col-size,
+.list-row .col-date {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--fc-muted);
+}
+.list-row .col-size,
+.list-head .col-size {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.list-head .col-size {
+  display: flex;
+  justify-content: flex-end;
+}
+@media (max-width: 1120px) {
+  .view-switch button span {
+    display: none;
+  }
+  .view-switch button {
+    padding: 6px 8px;
+  }
+  .list-head,
+  .list-row {
+    grid-template-columns: minmax(150px, 1fr) 70px 76px 100px;
+  }
+  .col-date {
+    display: none;
+  }
+}
+
+/* Nothing in these views is meant to be selected as text; a stray text selection (from
+   Shift+click) would turn the next drag into a text drag instead of moving the item. */
+.listing-scroll {
+  user-select: none;
+}
