@@ -5,7 +5,7 @@
   "description": "先在画布中整理，再预览真实路径的 Windows 文件整理工具",
   "main": "06_构建产物/electron/main.cjs",
   "author": "FileCanvas",
-  "license": "UNLICENSED",
+  "license": "PolyForm-Noncommercial-1.0.0",
   "scripts": {
     "dev": "node 04_构建脚本/dev.mjs",
     "build": "tsc --noEmit && vite build && node 04_构建脚本/build-electron.mjs",
@@ -52,6 +52,7 @@
     "files": [
       "06_构建产物/**/*",
       "01_源码/assets/icon.ico",
+      "LICENSE",
       "package.json"
     ],
     "asar": true,
