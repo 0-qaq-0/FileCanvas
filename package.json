@@ -1,6 +1,6 @@
 {
   "name": "filecanvas",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "private": true,
   "description": "先在画布中整理，再预览真实路径的 Windows 文件整理工具",
   "main": "06_构建产物/electron/main.cjs",
@@ -19,6 +19,9 @@
     "test:ai": "npm run build && node 02_测试/交互测试/canvas-ai.e2e.mjs",
     "test:expanded": "node 02_测试/交互测试/expanded-flow.e2e.mjs",
     "test:smart": "npm run build && node 02_测试/交互测试/smart-organize.e2e.mjs",
+    "test:tutorial": "npm run build && node 02_测试/交互测试/tutorial.e2e.mjs",
+    "test:settings": "npm run build && node 02_测试/交互测试/settings.e2e.mjs",
+    "test:views": "npm run build && node 02_测试/交互测试/views.e2e.mjs",
     "source:zip": "node 04_构建脚本/package-source.mjs"
   },
   "dependencies": {
