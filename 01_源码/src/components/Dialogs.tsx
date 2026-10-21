@@ -19,12 +19,15 @@ export function Modal({
   children,
   onClose,
   wide = false,
+  side = false,
 }: {
   title: string;
   subtitle?: string;
   children: React.ReactNode;
   onClose(): void;
   wide?: boolean;
+  /** A panel docked on the right that leaves the page behind it visible and usable. */
+  side?: boolean;
 }) {
   const section = useRef<HTMLElement>(null);
   useEffect(() => {
@@ -38,7 +41,7 @@ export function Modal({
   }, []);
   return (
     <div
-      className="modal-backdrop"
+      className={`modal-backdrop ${side ? 'side' : ''}`}
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) onClose();
       }}
@@ -49,7 +52,8 @@ export function Modal({
       <section
         ref={section}
         onKeyDown={(event) => {
-          if (event.key !== 'Tab') return;
+          // A docked panel does not hold keyboard focus captive.
+          if (event.key !== 'Tab' || side) return;
           const targets = Array.from(
             section.current?.querySelectorAll<HTMLElement>(
               'button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex="0"]',
@@ -67,9 +71,9 @@ export function Modal({
           }
         }}
         role="dialog"
-        aria-modal="true"
+        aria-modal={!side}
         aria-label={title}
-        className={`modal ${wide ? 'wide' : ''}`}
+        className={`modal ${wide ? 'wide' : ''} ${side ? 'side' : ''}`}
       >
         <header>
           <div>

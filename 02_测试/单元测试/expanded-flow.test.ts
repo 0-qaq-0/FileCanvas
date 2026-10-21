@@ -45,7 +45,7 @@ it('lays out several expanded and nested containers without overlapping roots an
     b = ns.find((n) => n.name === '交付')!,
     nested = ns.find((n) => n.name === '子目录')!,
     file = ns.find((n) => n.name === '方案.md')!;
-  const layout = expandedLayout(s.project.nodes, null, new Set([a.id, b.id, nested.id]), 1000);
+  const layout = expandedLayout(s.project.nodes, null, new Set([a.id, b.id, nested.id]));
   expect(layout).toHaveLength(ns.length);
   const r = layout.find((r) => r.id === nested.id)!;
   expect(folderAt(s.project.nodes, layout, { x: r.x + 30, y: r.y + 60 }, [file.id])).toBe(

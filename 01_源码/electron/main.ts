@@ -20,6 +20,7 @@ import {
 } from './filesystem';
 import { ProjectStorage } from './storage';
 import { RulesStorage } from './rules-storage';
+import { PreferencesStorage } from './preferences-storage';
 import { createSampleFolder } from './demo-samples';
 import { importEntries, workspace } from '../src/domain/workspace';
 import { markdownPlan } from '../src/domain/plan-report';
@@ -34,6 +35,7 @@ let mainWindow: BrowserWindow;
 let activeRoot: string | null = null;
 let storage: ProjectStorage;
 let rules: RulesStorage;
+let preferences: PreferencesStorage;
 let ai: AiService;
 let disk: DiskOperations;
 let fileOperation: Promise<unknown> | null = null;
@@ -114,6 +116,7 @@ app.whenReady().then(async () => {
   if (!hasInstanceLock) return;
   storage = new ProjectStorage(path.join(app.getPath('userData'), 'projects'));
   rules = new RulesStorage(app.getPath('userData'));
+  preferences = new PreferencesStorage(app.getPath('userData'));
   if (devUrl && !e2e && process.env.FILECANVAS_TEST_PROFILE !== '1') {
     const existing = path.join(app.getPath('appData'), 'FileCanvas', 'ai-settings.json');
     try {
@@ -258,6 +261,8 @@ app.whenReady().then(async () => {
   handle('fc:projects', () => storage.list());
   handle('fc:rules-load', () => rules.load());
   handle('fc:rules-save', (list) => rules.save(list));
+  handle('fc:prefs-load', () => preferences.load());
+  handle('fc:prefs-save', (value) => preferences.save(value));
   handle('fc:load', async (id) => activate(await storage.load(id)));
   handle('fc:restore', async () => {
     const project = await storage.last();
@@ -360,8 +365,7 @@ app.whenReady().then(async () => {
       closePending = false;
       return;
     }
-    storage
-      .flush()
+    Promise.all([storage.flush(), preferences.flush()])
       .then(() => {
         closing = true;
         mainWindow.close();

@@ -28,6 +28,9 @@ import {
   Eye,
   ExternalLink,
   Expand,
+  GraduationCap,
+  SlidersHorizontal,
+  Shapes,
 } from 'lucide-react';
 import type {
   ApiResult,
@@ -71,7 +74,35 @@ import { suggestFolderName, suggestRecipes } from './domain/recipes';
 import { filterLayer, selectableMatches } from './domain/filter';
 import { SuggestionBar } from './components/SuggestionBar';
 import { RecoveryDialog, RefreshDialog } from './components/OperationDialogs';
+import { Tutorial } from './components/Tutorial';
+import { WelcomeArt } from './components/WelcomeArt';
+import { readTutorialDone, writeTutorialDone } from './domain/tutorial';
+import { SettingsDialog } from './components/SettingsDialog';
+import { ListingView, VIEW_ICON } from './components/FileViews';
+import { DEFAULT_PREFERENCES, normalizePreferences } from './domain/preferences';
+import type { Preferences } from './domain/preferences';
 
+const VIEW_BUTTONS = [
+  { mode: 'canvas' as const, label: '画布', hint: '自由摆放，保留你拖出来的位置', Icon: Shapes },
+  {
+    mode: 'tiles' as const,
+    label: '平铺',
+    hint: '整齐的网格，按名称、类型、大小或时间排序',
+    Icon: VIEW_ICON.tiles,
+  },
+  {
+    mode: 'list' as const,
+    label: '列表',
+    hint: '详细信息表格，可展开文件夹、点表头排序',
+    Icon: VIEW_ICON.list,
+  },
+  {
+    mode: 'groups' as const,
+    label: '分组',
+    hint: '按类型、修改月份或计划状态分栏',
+    Icon: VIEW_ICON.groups,
+  },
+];
 function unwrap<T>(response: ApiResult<T>): T {
   if (!response.ok) throw new Error(response.error ?? '操作失败');
   return response.data as T;
@@ -99,6 +130,7 @@ export default function App() {
     | 'draft'
     | 'recovery'
     | 'refresh'
+    | 'settings'
     | null
   >(null);
   const [name, setName] = useState('');
@@ -124,6 +156,11 @@ export default function App() {
   const [filter, setFilter] = useState('');
   const filterRef = useRef<HTMLInputElement>(null);
   const [dismissedTips, setDismissedTips] = useState<string[]>([]);
+  const [prefs, setPrefs] = useState<Preferences>(DEFAULT_PREFERENCES);
+  const prefsNow = useRef(prefs);
+  const prefsTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [tour, setTour] = useState(false);
+  const [tourDone, setTourDone] = useState(readTutorialDone);
   async function refreshOperation() {
     const id = current.current?.project.id;
     if (!id) return;
@@ -142,6 +179,25 @@ export default function App() {
     const merged = { ...existing, ...view };
     if (JSON.stringify(existing) !== JSON.stringify(merged))
       replace({ ...current.current, project: { ...current.current.project, view: merged } });
+  }
+  // Display preferences apply at once and are saved shortly after the last change.
+  function savePrefsNow() {
+    if (prefsTimer.current) clearTimeout(prefsTimer.current);
+    prefsTimer.current = null;
+    return window.fileCanvas
+      .savePreferences(prefsNow.current)
+      .then((result) => {
+        if (!result.ok) notify(`显示设置未能保存：${result.error ?? '未知错误'}`);
+      })
+      .catch(() => notify('显示设置未能保存。'));
+  }
+  function updatePrefs(patch: Partial<Preferences>) {
+    const next = normalizePreferences({ ...prefsNow.current, ...patch });
+    prefsNow.current = next;
+    setPrefs(next);
+    if (!window.fileCanvas) return;
+    if (prefsTimer.current) clearTimeout(prefsTimer.current);
+    prefsTimer.current = setTimeout(() => void savePrefsNow(), 300);
   }
   function notify(message: string) {
     setToast(message);
@@ -186,6 +242,20 @@ export default function App() {
     }
   }
   useEffect(() => {
+    if (!window.fileCanvas) return;
+    window.fileCanvas
+      .loadPreferences()
+      .then((result) => {
+        if (!result.ok || !result.data) return;
+        // A change made before the file was read wins over what was stored.
+        if (prefsTimer.current) return;
+        prefsNow.current = result.data.preferences;
+        setPrefs(result.data.preferences);
+        if (result.data.notice) notify(result.data.notice);
+      })
+      .catch(() => {});
+  }, []);
+  useEffect(() => {
     if (!window.fileCanvas) {
       notify('请通过 Electron 桌面程序启动。普通浏览器不提供本地文件接口。');
       setStarting(false);
@@ -220,7 +290,7 @@ export default function App() {
         notify('正在处理文件，请完成后再关闭窗口。');
         return;
       }
-      void persist()
+      void Promise.all([persist(), prefsTimer.current ? savePrefsNow() : null])
         .then(() => window.fileCanvas.finishClose(true))
         .catch(() => {
           window.fileCanvas.finishClose(false);
@@ -235,14 +305,25 @@ export default function App() {
   }, [toast]);
   useEffect(() => {
     function keyboard(event: KeyboardEvent) {
+      // The settings panel is a docked, non-modal panel: the canvas and its shortcuts stay live.
       if (
-        dialog ||
+        (dialog && dialog !== 'settings') ||
         busy ||
         menu ||
+        tour ||
         (event.target as HTMLElement).closest('input, textarea, [contenteditable]')
       )
         return;
+      if (event.key === 'Escape' && dialog === 'settings') {
+        setDialog(null);
+        return;
+      }
       if (event.ctrlKey || event.metaKey) {
+        if (event.key === ',') {
+          event.preventDefault();
+          setDialog('settings');
+          return;
+        }
         if (event.key.toLowerCase() === 'f' && state) {
           event.preventDefault();
           filterRef.current?.focus();
@@ -292,7 +373,7 @@ export default function App() {
     }
     window.addEventListener('keydown', keyboard);
     return () => window.removeEventListener('keydown', keyboard);
-  }, [state, dialog, selected, parentId, busy, menu]);
+  }, [state, dialog, selected, parentId, busy, menu, tour]);
   async function run(task: () => Promise<void>) {
     if (operationBusy.current) return;
     operationBusy.current = true;
@@ -337,16 +418,33 @@ export default function App() {
       }
     });
   }
-  function openDemo() {
-    void run(async () => {
+  async function openDemo(quiet = false) {
+    let created = false;
+    await run(async () => {
       await persist();
       const project = unwrap(await window.fileCanvas.openDemo());
       replace(workspace(project));
       enter(null);
       setPreview(null);
       setExportPath(null);
-      notify('已创建一份新的 20 文件演示副本。你原来的项目已保存，可随时恢复。');
+      created = true;
+      if (!quiet) notify('已创建一份新的 20 文件演示副本。你原来的项目已保存，可随时恢复。');
     });
+    return created;
+  }
+  function finishTour() {
+    setTour(false);
+    writeTutorialDone();
+    setTourDone(true);
+  }
+  // The tour points at real controls, so it needs an open project: with none, it opens the
+  // demo copy first (the same one "体验示例" makes), otherwise it runs on the current one.
+  async function startTutorial() {
+    if (!current.current && !(await openDemo(true))) return;
+    setDialog(null);
+    setMenu(null);
+    setFocused(false);
+    setTour(true);
   }
   async function add(paths: string[], destination = parentId, position?: { x: number; y: number }) {
     await run(async () => {
@@ -413,9 +511,19 @@ export default function App() {
       setNameError((error as Error).message);
     }
   }
-  function move(ids: string[], destination: string | null) {
-    edit((s) => moveNodes(s, ids, destination));
-    setSelected([]);
+  function move(
+    ids: string[],
+    destination: string | null,
+    positions?: Record<string, { x: number; y: number }>,
+  ) {
+    const before = current.current;
+    edit((s) => moveNodes(s, ids, destination, positions));
+    if (current.current === before) return;
+    // Items put down on the canvas stay selected so the pile can be picked up again.
+    if (!positions) setSelected([]);
+    const folder = destination ? current.current?.project.nodes[destination] : null;
+    if (ids.length > 1 && folder)
+      notify(`已把 ${ids.length} 项放入“${folder.name}”，Ctrl+Z 可撤销。`);
   }
   function openFile(id: string) {
     const source = current.current?.project.nodes[id]?.source;
@@ -565,6 +673,7 @@ export default function App() {
     : null;
   const tips =
     tipData &&
+    prefs.showSuggestions &&
     tipData.loose >= 4 &&
     tipData.items.length &&
     !focused &&
@@ -575,7 +684,7 @@ export default function App() {
       : null;
   return (
     <div
-      className={`app-shell canvas-first ${focused ? 'focus-mode' : ''} ${dialog ? 'has-dialog' : ''}`}
+      className={`app-shell canvas-first bg-${prefs.background} ${focused ? 'focus-mode' : ''} ${dialog ? 'has-dialog' : ''} ${prefs.showHints ? '' : 'no-hints'} ${prefs.reduceMotion ? 'reduce-motion' : ''}`}
     >
       <header className="main-header">
         <div className="brand">
@@ -619,6 +728,7 @@ export default function App() {
         </button>
         <button
           className="button primary apply-entry"
+          data-tour="apply"
           disabled={!state || busy || !!operation?.needsRecovery}
           onClick={checkPlan}
         >
@@ -637,8 +747,18 @@ export default function App() {
           <Sparkles size={16} />
           AI 助手
         </button>
+        <button
+          className="icon-button"
+          aria-label="界面设置"
+          title="界面设置 (Ctrl+,)"
+          aria-pressed={dialog === 'settings'}
+          onClick={() => setDialog(dialog === 'settings' ? null : 'settings')}
+        >
+          <SlidersHorizontal size={18} />
+        </button>
         <details
           className="more-tools"
+          data-tour="more"
           onClick={(e) => {
             if ((e.target as HTMLElement).closest('button')) e.currentTarget.open = false;
           }}
@@ -682,7 +802,11 @@ export default function App() {
               <Files size={16} />
               已保存项目
             </button>
-            <button className="button demo-entry" disabled={busy || starting} onClick={openDemo}>
+            <button
+              className="button demo-entry"
+              disabled={busy || starting}
+              onClick={() => void openDemo()}
+            >
               <Play size={16} />
               体验示例
             </button>
@@ -705,6 +829,15 @@ export default function App() {
             >
               <ShieldCheck size={16} />
               恢复上次文件移动
+            </button>
+            <div className="menu-sep" />
+            <button
+              className="button"
+              disabled={busy || starting}
+              onClick={() => void startTutorial()}
+            >
+              <GraduationCap size={16} />
+              新手教程
             </button>
             <button className="button" onClick={() => setDialog('help')}>
               <Info size={16} />
@@ -776,8 +909,24 @@ export default function App() {
                   恢复上次文件移动
                 </button>
               )}
+              <div className="view-switch" role="group" aria-label="展示方式">
+                {VIEW_BUTTONS.map(({ mode, label, hint, Icon }) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    aria-label={`${label}视图`}
+                    title={`${label}：${hint}`}
+                    aria-pressed={prefs.viewMode === mode}
+                    onClick={() => updatePrefs({ viewMode: mode })}
+                  >
+                    <Icon size={15} />
+                    <span>{label}</span>
+                  </button>
+                ))}
+              </div>
               <button
                 className="button small"
+                data-tour="draft"
                 onClick={() => {
                   setDraftStart(undefined);
                   setDialog('draft');
@@ -797,8 +946,9 @@ export default function App() {
               </button>
             </div>
             <div
-              className={`operation-notice ${operation?.needsRecovery || problem ? 'has-problem' : ''}`}
+              className={`operation-notice ${operation?.needsRecovery || problem ? 'has-problem' : pendingCount ? 'is-pending' : ''}`}
               data-testid="operation-notice"
+              data-tour="notice"
               aria-live="polite"
             >
               {operation?.needsRecovery || problem ? (
@@ -878,48 +1028,95 @@ export default function App() {
                 </button>
               </div>
             )}
-            <Canvas
-              key={`${state.project.id}-${parentId ?? 'root'}-${canvasRevision}`}
-              nodes={nodes}
-              rootPath={state.project.rootPath}
-              initialExpanded={state.project.view?.expandedIds}
-              onExpandedChange={(expandedIds) => updateView({ expandedIds })}
-              autoExpand={state.project.demo?.scenario === 'expanded-flow'}
-              parentId={parentId}
-              selected={selected}
-              onSelect={setSelected}
-              onEnter={enter}
-              onCreate={openCreate}
-              onRename={openRename}
-              onInspect={(id) => {
-                setInspectId(id);
-                setShowAi(false);
-              }}
-              onBrowse={() => setShowBrowser(true)}
-              onOpen={openFile}
-              onContextMenu={(id, x, y) => setMenu({ id, x, y })}
-              filter={filter}
-              filterResult={filterResult}
-              filterRef={filterRef}
-              onFilterChange={setFilter}
-              onSelectMatches={() => {
-                if (!filterResult?.matches.size) return;
-                const ids = selectableMatches(nodes, filterResult);
-                setSelected(ids);
-                notify(`已选中 ${ids.length} 项匹配的条目，可移入新文件夹或批量处理。`);
-              }}
-              highlighted={highlighted}
-              onMove={move}
-              onImport={add}
-              onLayout={(positions) =>
-                edit((s) =>
-                  commit(s, '调整画布布局', (next: NodeMap) => {
-                    for (const [id, pos] of Object.entries(positions))
-                      if (next[id]) Object.assign(next[id], pos);
-                  }),
-                )
-              }
-            />
+            {prefs.viewMode === 'canvas' || tour ? (
+              <Canvas
+                key={`${state.project.id}-${parentId ?? 'root'}-${canvasRevision}`}
+                nodes={nodes}
+                rootPath={state.project.rootPath}
+                initialExpanded={state.project.view?.expandedIds}
+                onExpandedChange={(expandedIds) => updateView({ expandedIds })}
+                autoExpand={state.project.demo?.scenario === 'expanded-flow'}
+                zoom={prefs.iconScale}
+                previews={prefs.showPreviews}
+                onZoom={(iconScale) => updatePrefs({ iconScale })}
+                parentId={parentId}
+                selected={selected}
+                onSelect={setSelected}
+                onEnter={enter}
+                onCreate={openCreate}
+                onRename={openRename}
+                onInspect={(id) => {
+                  setInspectId(id);
+                  setShowAi(false);
+                }}
+                onBrowse={() => setShowBrowser(true)}
+                onOpen={openFile}
+                onContextMenu={(id, x, y) => setMenu({ id, x, y })}
+                filter={filter}
+                filterResult={filterResult}
+                filterRef={filterRef}
+                onFilterChange={setFilter}
+                onSelectMatches={() => {
+                  if (!filterResult?.matches.size) return;
+                  const ids = selectableMatches(nodes, filterResult);
+                  setSelected(ids);
+                  notify(`已选中 ${ids.length} 项匹配的条目，可移入新文件夹或批量处理。`);
+                }}
+                highlighted={highlighted}
+                onMove={move}
+                onImport={add}
+                snapToGrid={prefs.snapToGrid}
+                onNotice={notify}
+                onLayout={(positions, label = '调整画布布局') =>
+                  edit((s) =>
+                    commit(s, label, (next: NodeMap) => {
+                      for (const [id, pos] of Object.entries(positions))
+                        if (next[id]) Object.assign(next[id], pos);
+                    }),
+                  )
+                }
+              />
+            ) : (
+              <ListingView
+                key={`${state.project.id}-${parentId ?? 'root'}-${canvasRevision}`}
+                mode={prefs.viewMode}
+                nodes={nodes}
+                rootPath={state.project.rootPath}
+                parentId={parentId}
+                selected={selected}
+                highlighted={highlighted}
+                sortKey={prefs.sortKey}
+                sortDir={prefs.sortDir}
+                groupBy={prefs.groupBy}
+                onSort={(sortKey, sortDir) => updatePrefs({ sortKey, sortDir })}
+                onGroupBy={(groupBy) => updatePrefs({ groupBy })}
+                zoom={prefs.iconScale}
+                previews={prefs.showPreviews}
+                onZoom={(iconScale) => updatePrefs({ iconScale })}
+                filter={filter}
+                filterResult={filterResult}
+                filterRef={filterRef}
+                onFilterChange={setFilter}
+                onSelectMatches={() => {
+                  if (!filterResult?.matches.size) return;
+                  const ids = selectableMatches(nodes, filterResult);
+                  setSelected(ids);
+                  notify(`已选中 ${ids.length} 项匹配的条目，可移入新文件夹或批量处理。`);
+                }}
+                onSelect={setSelected}
+                onEnter={enter}
+                onInspect={(id) => {
+                  setInspectId(id);
+                  setShowAi(false);
+                }}
+                onOpen={openFile}
+                onContextMenu={(id, x, y) => setMenu({ id, x, y })}
+                onMove={move}
+                onImport={add}
+                onBrowse={() => setShowBrowser(true)}
+                onCreate={openCreate}
+              />
+            )}
           </section>
           {!focused && inspectId && nodes[inspectId] && (
             <FileInspector
@@ -985,46 +1182,88 @@ export default function App() {
         </main>
       ) : (
         <main className="welcome">
-          <div className="welcome-art">
-            <span className="brand-mark">
-              <Files size={36} />
-            </span>
-            <Sparkles size={20} />
-          </div>
-          <span className="eyebrow">先想清楚，再动文件</span>
-          <h1>看清文件，整理后应用到本地。</h1>
-          <p>
-            在自由画布中排列、归类和调整文件。
-            <br />
-            核对路径后应用，完成后可恢复上次文件移动。
-          </p>
-          <button className="button primary large" disabled={starting || busy} onClick={openFolder}>
-            <FolderOpen size={18} />
-            选择文件夹，开始整理
-          </button>
-          <button className="button welcome-demo" disabled={starting || busy} onClick={openDemo}>
-            <Play size={16} />
-            先用 20 个示例文件试一遍
-          </button>
-          <div className="welcome-steps">
-            <span>
-              <PanelLeft size={19} />
-              浏览原始文件
-            </span>
-            <ChevronRight size={15} />
-            <span>
-              <FolderPlus size={19} />
-              在画布中分类
-            </span>
-            <ChevronRight size={15} />
-            <span>
-              <ScanEye size={19} />
-              核对并应用到本地
-            </span>
-          </div>
-          <div className="welcome-note">
-            <ShieldCheck size={15} />
-            拖动先预演，确认整理后才实际移动文件。
+          <div className="welcome-hero">
+            <div className="welcome-copy">
+              <span className="welcome-eyebrow">
+                <Sparkles size={13} />
+                先想清楚，再动文件
+              </span>
+              <h1>
+                看清文件，<em>整理后</em>应用到本地。
+              </h1>
+              <p>
+                在自由画布中排列、归类和调整文件。
+                <br />
+                核对路径后应用，完成后可恢复上次文件移动。
+              </p>
+              <div className="welcome-actions">
+                <button
+                  className="button primary large"
+                  disabled={starting || busy}
+                  onClick={openFolder}
+                >
+                  <FolderOpen size={18} />
+                  选择文件夹，开始整理
+                </button>
+                <button
+                  className="button large welcome-demo"
+                  disabled={starting || busy}
+                  onClick={() => void openDemo()}
+                >
+                  <Play size={16} />
+                  先用 20 个示例文件试一遍
+                </button>
+              </div>
+              {tourDone ? (
+                <button
+                  className="text-button welcome-replay"
+                  disabled={starting || busy}
+                  onClick={() => void startTutorial()}
+                >
+                  <GraduationCap size={14} />
+                  重新看新手教程
+                </button>
+              ) : (
+                <div className="welcome-tutorial">
+                  <span className="welcome-tutorial-icon">
+                    <GraduationCap size={20} />
+                  </span>
+                  <div>
+                    <strong>第一次用？花 1 分钟看懂</strong>
+                    <span>5 步认识画布、草案和“检查并应用”，会用示例文件演示，不碰你的文件。</span>
+                  </div>
+                  <button
+                    className="button"
+                    disabled={starting || busy}
+                    onClick={() => void startTutorial()}
+                  >
+                    开始新手教程
+                  </button>
+                </div>
+              )}
+              <ol className="welcome-flow">
+                <li>
+                  <b>1</b>
+                  <PanelLeft size={16} />
+                  浏览原始文件
+                </li>
+                <li>
+                  <b>2</b>
+                  <FolderPlus size={16} />
+                  在画布中分类
+                </li>
+                <li>
+                  <b>3</b>
+                  <ScanEye size={16} />
+                  核对并应用到本地
+                </li>
+              </ol>
+              <div className="welcome-note">
+                <ShieldCheck size={15} />
+                拖动先预演，确认整理后才实际移动文件。
+              </div>
+            </div>
+            <WelcomeArt />
           </div>
         </main>
       )}
@@ -1061,6 +1300,7 @@ export default function App() {
           </button>
         </div>
       )}
+      {tour && <Tutorial onClose={finishTour} />}
       {menu && (
         <ContextMenu
           x={menu.x}
@@ -1263,9 +1503,24 @@ export default function App() {
           }}
         />
       )}
+      {dialog === 'settings' && (
+        <SettingsDialog
+          prefs={prefs}
+          onChange={updatePrefs}
+          onReset={() => updatePrefs(DEFAULT_PREFERENCES)}
+          onClose={() => setDialog(null)}
+        />
+      )}
       {dialog === 'help' && (
         <Modal title="先虚拟整理，再核对结果" onClose={() => setDialog(null)}>
           <div className="help-content">
+            <p className="help-tutorial">
+              刚上手？
+              <button className="text-button" onClick={() => void startTutorial()}>
+                <GraduationCap size={14} />
+                跟着 5 步新手教程走一遍
+              </button>
+            </p>
             <p>
               1. 选择本地文件夹，自动将文件加入画布。文件栏、内容预览与 AI
               助手均可收起；“专注画布”可铺满窗口。
@@ -1300,6 +1555,14 @@ export default function App() {
             <p>
               8. “更多工具 →
               恢复上次文件移动”恢复最近一次实际整理；中断任务持续显示在画布顶部。如果涉及文件被外部修改或原位置出现新文件，会停止并提示。使用“刷新核对”查看外部变化并更新草案。“待删除”仅是标记，不会删除文件。
+            </p>
+            <p>
+              9. 导航栏的“画布 / 平铺 / 列表 /
+              分组”切换展示方式：画布可自由摆放；平铺、分组（按类型、修改月份或计划状态分栏）和列表（点表头排序、文件夹可展开）按顺序排列，不会改动你在画布上摆好的位置。单击选中，双击进入文件夹，拖到文件夹上即移动，右键菜单与画布相同。
+            </p>
+            <p>
+              10. 顶部的滑块图标（Ctrl+,）是“界面设置”：调整图标大小（在画布上按住 Ctrl
+              滚动滚轮也行）、画布背景、卡片预览、提示条和动画。只改变显示，设置保存在本机，重启后保留，“恢复默认”一键还原。
             </p>
           </div>
         </Modal>

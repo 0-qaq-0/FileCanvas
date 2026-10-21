@@ -79,7 +79,8 @@ try {
   await expect(page.locator('.browser-drawer')).toHaveCount(0);
   const rect = await page.locator('.canvas-scroll').boundingBox();
   expect(rect.width).toBeGreaterThan(1250);
-  expect(rect.height).toBeGreaterThan(650);
+  // The suggestion strip and the view tabs now sit above the canvas; 560px still leaves two rows.
+  expect(rect.height).toBeGreaterThan(560);
   await card('拍摄方案.md').click();
   await expect(page.locator('.text-preview')).toContainText('图书馆和操场');
   await page.getByRole('button', { name: '收起内容预览' }).click();

@@ -86,14 +86,19 @@ try {
   app = await electron.launch({ args: ['.'], env, timeout: 30000 });
   const page = await app.firstWindow();
   page.on('pageerror', (e) => errors.push(e.message));
+  // Two open containers now stack (a container is pushed below another one it would cover), so
+  // give the canvas room to show both: drag helpers measure both ends without scrolling.
+  await page.setViewportSize({ width: 1380, height: 1500 });
   await page.getByRole('button', { name: '选择文件夹，开始整理' }).click();
   await expect(page.locator('.statusbar')).toContainText('6 个文件');
   const card = (name) => page.locator(`[data-testid="canvas-card"][data-name="${name}"]`);
+  // Open containers sit on top of loose cards and folder cards, which keep their positions,
+  // so open the right-hand folder first; the left one stays reachable.
+  await card('已分类').click();
+  await expect(card('交付清单.md')).toBeVisible();
   await card('待整理').click();
   await expect(card('拍摄方案.md')).toBeVisible();
   await expect(card('待整理')).toHaveAttribute('data-expanded', 'true');
-  await card('已分类').click();
-  await expect(card('交付清单.md')).toBeVisible();
   await card('子目录').click();
   await expect(card('验收标准.txt')).toBeVisible();
   await expect(card('待整理')).toBeVisible();

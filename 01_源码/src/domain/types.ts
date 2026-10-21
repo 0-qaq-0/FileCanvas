@@ -1,3 +1,4 @@
+import type { Preferences, PreferencesLoad } from './preferences';
 export type EntryKind = 'file' | 'folder';
 export interface SourceEntry {
   id: string;
@@ -217,6 +218,8 @@ export interface FileCanvasApi {
   openDemo(): Promise<ApiResult<Project>>;
   loadRules(): Promise<ApiResult<RulesLoad>>;
   saveRules(rules: OrganizeRule[]): Promise<ApiResult<OrganizeRule[]>>;
+  loadPreferences(): Promise<ApiResult<PreferencesLoad>>;
+  savePreferences(preferences: Preferences): Promise<ApiResult<Preferences>>;
   exportPlan(
     project: Project,
   ): Promise<ApiResult<{ path: string; checkedAt: string; preview: Preview }>>;
