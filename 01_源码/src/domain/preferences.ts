@@ -49,8 +49,8 @@ export const DEFAULT_PREFERENCES: Preferences = {
   iconScale: 1,
   background: 'dots',
   showPreviews: true,
-  showHints: true,
-  showSuggestions: true,
+  showHints: false,
+  showSuggestions: false,
   reduceMotion: false,
   snapToGrid: false,
 };

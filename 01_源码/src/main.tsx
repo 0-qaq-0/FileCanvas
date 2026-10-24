@@ -4,4 +4,5 @@ import './styles.css';
 import './theme.css';
 import './onboarding.css';
 import './views.css';
+import './simple-ui.css';
 ReactDOM.createRoot(document.getElementById('root')!).render(<App />);

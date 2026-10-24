@@ -374,6 +374,23 @@ export default function App() {
     window.addEventListener('keydown', keyboard);
     return () => window.removeEventListener('keydown', keyboard);
   }, [state, dialog, selected, parentId, busy, menu, tour]);
+  useEffect(() => {
+    function dismiss(event: PointerEvent | KeyboardEvent) {
+      if (event instanceof KeyboardEvent && event.key !== 'Escape') return;
+      document
+        .querySelectorAll<HTMLDetailsElement>('.more-tools[open], .canvas-options[open]')
+        .forEach((menu) => {
+          if (event instanceof KeyboardEvent || !menu.contains(event.target as Node))
+            menu.open = false;
+        });
+    }
+    document.addEventListener('pointerdown', dismiss);
+    document.addEventListener('keydown', dismiss);
+    return () => {
+      document.removeEventListener('pointerdown', dismiss);
+      document.removeEventListener('keydown', dismiss);
+    };
+  }, []);
   async function run(task: () => Promise<void>) {
     if (operationBusy.current) return;
     operationBusy.current = true;
@@ -686,7 +703,7 @@ export default function App() {
     <div
       className={`app-shell canvas-first bg-${prefs.background} ${focused ? 'focus-mode' : ''} ${dialog ? 'has-dialog' : ''} ${prefs.showHints ? '' : 'no-hints'} ${prefs.reduceMotion ? 'reduce-motion' : ''}`}
     >
-      <header className="main-header">
+      <header className={`main-header ${state ? '' : 'welcome-header'}`}>
         <div className="brand">
           <span className="brand-mark">
             <Files size={20} />
@@ -700,18 +717,25 @@ export default function App() {
           打开文件夹
         </button>
         <button
-          className={`button ${showBrowser ? 'active-tool' : 'subtle'}`}
-          disabled={!state}
-          aria-pressed={showBrowser}
-          onClick={() => setShowBrowser(!showBrowser)}
+          className="button subtle"
+          data-tour="draft"
+          disabled={!state || busy}
+          onClick={() => {
+            setDraftStart('type');
+            setDialog('draft');
+          }}
         >
-          <PanelLeft size={16} />
-          文件栏
+          <Layers3 size={16} />
+          自动分类
+        </button>
+        <button className="button subtle" onClick={openCreate} disabled={!state || busy}>
+          <FolderPlus size={16} />
+          新建文件夹
         </button>
         <button
           className="icon-button"
           title={`撤销计划：${state?.past.at(-1)?.label ?? ''} (Ctrl+Z)，不会恢复已经移动的本地文件`}
-          aria-label="撤销"
+          aria-label="撤销未应用的修改"
           disabled={!state?.past.length || busy}
           onClick={() => edit(undo)}
         >
@@ -733,28 +757,7 @@ export default function App() {
           onClick={checkPlan}
         >
           <ScanEye size={16} />
-          检查并应用{pendingCount > 0 && <span className="count-pill">{pendingCount}</span>}
-        </button>
-        <button
-          className="button"
-          disabled={!state}
-          aria-pressed={showAi}
-          onClick={() => {
-            setShowAi(!showAi);
-            setInspectId(null);
-          }}
-        >
-          <Sparkles size={16} />
-          AI 助手
-        </button>
-        <button
-          className="icon-button"
-          aria-label="界面设置"
-          title="界面设置 (Ctrl+,)"
-          aria-pressed={dialog === 'settings'}
-          onClick={() => setDialog(dialog === 'settings' ? null : 'settings')}
-        >
-          <SlidersHorizontal size={18} />
+          预览并应用{pendingCount > 0 && <span className="count-pill">{pendingCount}</span>}
         </button>
         <details
           className="more-tools"
@@ -767,6 +770,41 @@ export default function App() {
             <MoreHorizontal size={20} />
           </summary>
           <div className="more-menu">
+            <span className="menu-label">显示与辅助</span>
+            <button
+              className="button"
+              disabled={!state}
+              aria-pressed={showBrowser}
+              onClick={() => setShowBrowser(!showBrowser)}
+            >
+              <PanelLeft size={16} />
+              原始文件栏
+            </button>
+            <button
+              className="button"
+              disabled={!state}
+              aria-pressed={showAi}
+              onClick={() => {
+                setShowAi(!showAi);
+                setInspectId(null);
+              }}
+            >
+              <Sparkles size={16} />
+              AI 助手
+            </button>
+            <button
+              className="button"
+              title="界面设置 (Ctrl+,)"
+              onClick={() => setDialog(dialog === 'settings' ? null : 'settings')}
+            >
+              <SlidersHorizontal size={16} />
+              界面设置
+            </button>
+            <button className="button" disabled={!state} onClick={() => setFocused(!focused)}>
+              {focused ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+              {focused ? '退出专注' : '专注画布'}
+            </button>
+            <div className="menu-sep" />
             <button
               className="button"
               disabled={!state || busy || !!operation?.needsRecovery}
@@ -895,10 +933,12 @@ export default function App() {
                   </span>
                 ))}
               </div>
-              <span className="canvas-safe">
-                <ShieldCheck size={13} />
-                整理计划 · 确认后应用
-              </span>
+              {!pendingCount && (
+                <span className="canvas-safe">
+                  <ShieldCheck size={13} />
+                  {operation?.status === 'applied' ? '已应用并核验' : '当前路径与本地一致'}
+                </span>
+              )}
               {canUndoDisk && (
                 <button
                   className="button small"
@@ -910,7 +950,9 @@ export default function App() {
                 </button>
               )}
               <div className="view-switch" role="group" aria-label="展示方式">
-                {VIEW_BUTTONS.map(({ mode, label, hint, Icon }) => (
+                {VIEW_BUTTONS.filter(
+                  ({ mode }) => mode === 'canvas' || mode === 'list' || mode === prefs.viewMode,
+                ).map(({ mode, label, hint, Icon }) => (
                   <button
                     key={mode}
                     type="button"
@@ -924,29 +966,9 @@ export default function App() {
                   </button>
                 ))}
               </div>
-              <button
-                className="button small"
-                data-tour="draft"
-                onClick={() => {
-                  setDraftStart(undefined);
-                  setDialog('draft');
-                }}
-                disabled={busy}
-              >
-                <Layers3 size={14} />
-                分类草案
-              </button>
-              <button className="button small" onClick={openCreate} disabled={busy}>
-                <FolderPlus size={14} />
-                新建文件夹
-              </button>
-              <button className="button small focus-button" onClick={() => setFocused(!focused)}>
-                {focused ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
-                {focused ? '退出专注' : '专注画布'}
-              </button>
             </div>
             <div
-              className={`operation-notice ${operation?.needsRecovery || problem ? 'has-problem' : pendingCount ? 'is-pending' : ''}`}
+              className={`operation-notice ${tour ? 'is-tour' : ''} ${operation?.needsRecovery || problem ? 'has-problem' : pendingCount ? 'is-pending' : ''}`}
               data-testid="operation-notice"
               data-tour="notice"
               aria-live="polite"
@@ -1000,6 +1022,18 @@ export default function App() {
             {selected.length > 0 && (
               <div className="selection-toolbar">
                 <strong>已选择 {selected.length} 项</strong>
+                {selected.length === 1 && (
+                  <button
+                    className="text-button"
+                    onClick={() => {
+                      setInspectId(selected[0]);
+                      setShowAi(false);
+                    }}
+                  >
+                    <Eye size={14} />
+                    预览详情
+                  </button>
+                )}
                 <button className="text-button" onClick={() => setDialog('move')}>
                   <MoveRight size={14} />
                   移动到…
@@ -1189,10 +1223,10 @@ export default function App() {
                 先想清楚，再动文件
               </span>
               <h1>
-                看清文件，<em>整理后</em>应用到本地。
+                把文件，<em>整理清楚。</em>
               </h1>
               <p>
-                在自由画布中排列、归类和调整文件。
+                看清类型和大小，拖进文件夹就能归类。
                 <br />
                 核对路径后应用，完成后可恢复上次文件移动。
               </p>
@@ -1211,7 +1245,7 @@ export default function App() {
                   onClick={() => void openDemo()}
                 >
                   <Play size={16} />
-                  先用 20 个示例文件试一遍
+                  试用示例文件
                 </button>
               </div>
               {tourDone ? (
@@ -1224,22 +1258,14 @@ export default function App() {
                   重新看新手教程
                 </button>
               ) : (
-                <div className="welcome-tutorial">
-                  <span className="welcome-tutorial-icon">
-                    <GraduationCap size={20} />
-                  </span>
-                  <div>
-                    <strong>第一次用？花 1 分钟看懂</strong>
-                    <span>5 步认识画布、草案和“检查并应用”，会用示例文件演示，不碰你的文件。</span>
-                  </div>
-                  <button
-                    className="button"
-                    disabled={starting || busy}
-                    onClick={() => void startTutorial()}
-                  >
-                    开始新手教程
-                  </button>
-                </div>
+                <button
+                  className="text-button welcome-replay"
+                  disabled={starting || busy}
+                  onClick={() => void startTutorial()}
+                >
+                  <GraduationCap size={14} />
+                  开始新手教程
+                </button>
               )}
               <ol className="welcome-flow">
                 <li>
@@ -1522,47 +1548,36 @@ export default function App() {
               </button>
             </p>
             <p>
-              1. 选择本地文件夹，自动将文件加入画布。文件栏、内容预览与 AI
-              助手均可收起；“专注画布”可铺满窗口。
+              <strong>1. 打开文件夹</strong>
+              <br />
+              文件自动加入画布。文件卡片显示类型与大小；文件夹显示已加入画布的文件数量、合计大小和主要类型。
             </p>
             <p>
-              2. 勾选文件后加入画布，或直接拖到右侧。导入文件夹会读取整个子树，最多 5000
-              项；遇到不安全条目时整批拒绝。
+              <strong>2. 拖动整理，或自动分类</strong>
+              <br />
+              点文件夹可同屏展开；拖入文件夹即可归类。单击文件只选择，点眼睛或“预览详情”查看内容，双击用系统应用打开。“自动分类”默认按类型，其他方式可在下拉框选择。
             </p>
             <p>
-              3.
-              点击文件夹同屏展开，直接拖入或拖出容器；单击文件看内容和解释，双击用系统应用打开。多选可批量移动。右键卡片有常用操作；Ctrl+F
-              筛选当前层，“选中匹配项”后可“移入新文件夹”（Ctrl+Shift+N）；选中多项按 F2
-              批量重命名。Ctrl+Z / Ctrl+Y 撤销和重做。
+              <strong>3. 预览并应用</strong>
+              <br />
+              拖动先修改计划，本地文件保持原位。满意后点击“预览并应用”，核对原路径和目标路径，再点“应用到本地文件”执行。每次最多
+              100 个文件，支持同一本地目录内的移动、改名和新建分类目录。
             </p>
             <p>
-              4. 自动保存包含虚拟结构与各层坐标，Ctrl+S
-              手动保存。打开已保存项目可恢复进度；重启后撤销历史会重新开始。
+              <strong>4. 撤销与恢复</strong>
+              <br />
+              Ctrl+Z / Ctrl+Y
+              撤销和重做尚未应用的修改。已经应用到本地的操作，用“恢复上次文件移动”放回原处。遇到冲突或外部编辑时会停止并提示。
             </p>
             <p>
-              5.
-              “检查并应用”会核对真实路径、同名冲突和文件夹完整性。点“应用到本地文件”执行并核验结果，支持本地同卷文件和文件夹的移动、重命名和新建分类目录，每次最多
-              100 个文件。
+              <strong>5. 需要时再打开辅助工具</strong>
+              <br />
+              “更多工具”里提供原始文件栏、AI
+              助手、刷新、已保存项目和界面设置（Ctrl+,）。常用视图为画布和列表，平铺、分组可在设置里选择。画布的批量展开和按类型排列在“画布选项”中。
             </p>
             <p>
-              6.
-              “分类草案”提供五种整理方式（内容项目、按文件类型、按修改月份、久未修改归档、我的规则），按目标文件夹分组预览，可关闭不想整理的组；“我的规则”可自己写条件（名称含…、扩展名、多久没改、多大
-              → 文件夹，可写 财务/发票
-              这样的多层路径），保存在本机，换个文件夹也能用；采用后仍是虚拟结构，不确定的由你调整。预览中的“结构对照”可比较两棵树，并导出
-              Markdown 方案到软件自己的 exports 目录。
-            </p>
-            <p>7. “体验示例”每次创建新的真实样例副本并自动加入画布，不会覆盖你已经保存的项目。</p>
-            <p>
-              8. “更多工具 →
-              恢复上次文件移动”恢复最近一次实际整理；中断任务持续显示在画布顶部。如果涉及文件被外部修改或原位置出现新文件，会停止并提示。使用“刷新核对”查看外部变化并更新草案。“待删除”仅是标记，不会删除文件。
-            </p>
-            <p>
-              9. 导航栏的“画布 / 平铺 / 列表 /
-              分组”切换展示方式：画布可自由摆放；平铺、分组（按类型、修改月份或计划状态分栏）和列表（点表头排序、文件夹可展开）按顺序排列，不会改动你在画布上摆好的位置。单击选中，双击进入文件夹，拖到文件夹上即移动，右键菜单与画布相同。
-            </p>
-            <p>
-              10. 顶部的滑块图标（Ctrl+,）是“界面设置”：调整图标大小（在画布上按住 Ctrl
-              滚动滚轮也行）、画布背景、卡片预览、提示条和动画。只改变显示，设置保存在本机，重启后保留，“恢复默认”一键还原。
+              Ctrl+F 筛选文件，Ctrl / Shift 多选，F2
+              改名，多选时可批量改名。项目自动保存；重启后保留整理计划，撤销历史从本次打开重新开始。文件夹合计仅涵盖画布内文件，不代表磁盘全部占用。
             </p>
           </div>
         </Modal>

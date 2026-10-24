@@ -11,6 +11,7 @@ import {
   LayoutGrid,
   List,
   Rows3,
+  Eye,
   Search,
   X,
 } from 'lucide-react';
@@ -29,6 +30,9 @@ import {
 import { children, isDescendant, topLevelSelection } from '../domain/workspace';
 import { CardVisual } from './ExpandedCanvas';
 import { FileIcon, formatSize } from './FileIcon';
+import { FileFacts, FolderVisual } from './FileFacts';
+import { fileInfo, summarizeFolders, folderDescription, folderSize } from '../domain/file-info';
+import type { FolderSummary } from '../domain/file-info';
 
 const SORT_LABEL: Record<SortKey, string> = {
   name: '名称',
@@ -98,14 +102,14 @@ function Tile({
   node,
   p,
   badge,
-  subtitle,
+  summary,
   previews,
   root,
 }: {
   node: CanvasNode;
   p: { className: string } & React.HTMLAttributes<HTMLDivElement>;
   badge: string;
-  subtitle: string;
+  summary?: FolderSummary;
   previews: boolean;
   root: React.RefObject<HTMLElement | null>;
 }) {
@@ -117,15 +121,23 @@ function Tile({
       {...p}
       className={`canvas-card tile ${folder ? 'is-folder' : ''} ${p.className}`}
     >
-      <span className="card-type">
-        {node.reviewDelete ? '待删除候选 · 未删除' : folder ? '文件夹' : typeLabel(node)}
+      <span className="card-type" title={folder ? '文件夹' : fileInfo(node.name).description}>
+        {node.reviewDelete
+          ? '待删除候选 · 未删除'
+          : folder
+            ? '文件夹'
+            : fileInfo(node.name).description}
       </span>
       {badge && <span className="pending-badge card-pending">{badge}</span>}
-      <CardVisual node={node} previews={previews && near} />
+      {folder ? (
+        <FolderVisual summary={summary} />
+      ) : (
+        <CardVisual node={node} previews={previews && near} />
+      )}
       <span className="card-name" title={node.name}>
         {node.name}
       </span>
-      <small>{subtitle}</small>
+      <FileFacts node={node} summary={summary} />
     </div>
   );
 }
@@ -167,6 +179,7 @@ interface Props {
 // touched, so switching back finds every card where it was.
 export function ListingView(props: Props) {
   const { mode, nodes, rootPath, parentId, selected, sortKey, sortDir } = props;
+  const folderSummaries = useMemo(() => summarizeFolders(nodes), [nodes]);
   const [open, setOpen] = useState<Set<string>>(new Set());
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [hover, setHover] = useState<string | null | undefined>(undefined);
@@ -250,7 +263,6 @@ export function ListingView(props: Props) {
     } else {
       anchor.current = node.id;
       props.onSelect([node.id]);
-      if (node.kind === 'file') props.onInspect(node.id);
     }
   }
   // The canvas never targets the items being moved or what they contain; neither do these.
@@ -404,11 +416,7 @@ export function ListingView(props: Props) {
       node={node}
       p={itemProps(node)}
       badge={pendingLabel(nodes, rootPath, node)}
-      subtitle={
-        node.kind === 'folder'
-          ? `${children(nodes, node.id).length} 个子项`
-          : formatSize(node.source?.size ?? 0)
-      }
+      summary={folderSummaries.get(node.id)}
       previews={props.previews}
       root={scroller}
     />
@@ -667,15 +675,27 @@ export function ListingView(props: Props) {
                         {node.name}
                       </span>
                     </span>
-                    <span className="col-type">{typeLabel(node)}</span>
-                    <span className="col-size">
+                    <span className="col-type">
+                      {folder ? '文件夹' : fileInfo(node.name).description}
+                    </span>
+                    <span
+                      className="col-size"
+                      title={folder ? folderDescription(folderSummaries.get(node.id)!) : undefined}
+                    >
                       {folder
-                        ? `${children(nodes, node.id).length} 项`
-                        : formatSize(node.source?.size ?? 0)}
+                        ? folderSize(folderSummaries.get(node.id)!)
+                        : formatSize(node.source?.size)}
                     </span>
                     <span className="col-date">{formatModified(node.source?.mtimeMs)}</span>
                     <span className="col-status">
                       {badge && <span className="pending-badge">{badge}</span>}
+                      <button
+                        className="row-preview"
+                        title={`预览 ${node.name}`}
+                        onClick={() => props.onInspect(node.id)}
+                      >
+                        <Eye size={15} />
+                      </button>
                     </span>
                   </div>
                 );
@@ -685,9 +705,7 @@ export function ListingView(props: Props) {
         )}
       </div>
       <div className="canvas-hint">
-        <span>
-          单击选择并查看内容 · 双击打开文件夹或文件 · 拖到文件夹上移动 · Ctrl / Shift 多选
-        </span>
+        <span>单击选择 · 双击打开 · 点击眼睛预览 · 拖到文件夹即可归类</span>
         <span>Ctrl+Z 撤销</span>
       </div>
     </>

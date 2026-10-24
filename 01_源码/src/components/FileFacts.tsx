@@ -1,0 +1,39 @@
+import type { CanvasNode } from '../domain/types';
+import { fileInfo, folderDescription, folderSize, formatSize } from '../domain/file-info';
+import type { FolderSummary } from '../domain/file-info';
+import { FileIcon } from './FileIcon';
+
+export function FolderVisual({ summary }: { summary?: FolderSummary }) {
+  return (
+    <div className="folder-glance" title={summary && folderDescription(summary)}>
+      <FileIcon name="" folder size={40} />
+      {!!summary?.files && <span className="folder-count">{summary.files}</span>}
+      <span className="folder-types">
+        {summary?.types
+          .slice(0, 2)
+          .map(([label]) => label)
+          .join(' / ') || '文件夹'}
+      </span>
+    </div>
+  );
+}
+
+export function FileFacts({ node, summary }: { node: CanvasNode; summary?: FolderSummary }) {
+  if (node.kind === 'folder' && summary)
+    return (
+      <small className="file-facts folder-facts" title={folderDescription(summary)}>
+        <span>
+          {summary.files} 个文件{summary.folders ? ` · ${summary.folders} 个文件夹` : ''}
+        </span>
+        <span className="fact-size">
+          {folderSize(summary)}
+          <span className="fact-scope"> · 画布内</span>
+        </span>
+      </small>
+    );
+  return (
+    <small className="file-facts" title={fileInfo(node.name).description}>
+      <span className="fact-size">{formatSize(node.source?.size)}</span>
+    </small>
+  );
+}

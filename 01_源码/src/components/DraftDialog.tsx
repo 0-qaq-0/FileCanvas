@@ -1,15 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import {
-  Layers3,
-  Folder,
-  ShieldCheck,
-  AlertTriangle,
-  CalendarDays,
-  Archive,
-  ListChecks,
-  ChevronDown,
-  ChevronRight,
-} from 'lucide-react';
+import { ShieldCheck, AlertTriangle, ChevronDown, ChevronRight } from 'lucide-react';
 import { buildClassificationDraft } from '../domain/drafts';
 import type { DraftMode, DraftOptions } from '../domain/drafts';
 import { RECIPE_INFO } from '../domain/recipes';
@@ -19,15 +9,7 @@ import type { OrganizeRule, Workspace } from '../domain/types';
 import { Modal } from './Dialogs';
 import { RulesEditor } from './RulesEditor';
 
-const ICONS = {
-  'content-project': Layers3,
-  type: Folder,
-  month: CalendarDays,
-  stale: Archive,
-  custom: ListChecks,
-} as const;
 const INFO = { ...RECIPE_INFO, custom: CUSTOM_INFO };
-const ORDER: DraftMode[] = ['content-project', 'type', 'month', 'stale', 'custom'];
 const STALE_CHOICES = [30, 90, 180, 365];
 
 export function DraftDialog({
@@ -111,34 +93,29 @@ export function DraftDialog({
   }
   return (
     <Modal
-      title="先生成一份分类草案"
-      subtitle="只规划当前层的文件，现有子文件夹保持原样。规则依据文件名、扩展名和修改时间，不读取内容，也不是 AI 判断。"
+      title="自动分类"
+      subtitle="先预览分类，再放到画布。确认应用后才移动本地文件。"
       wide
       onClose={onClose}
     >
       <div className="draft-body">
-        <div className="draft-presets">
-          {ORDER.map((id) => {
-            const Icon = ICONS[id];
-            return (
-              <button
-                key={id}
-                className={mode === id ? 'preset active' : 'preset'}
-                aria-pressed={mode === id}
-                onClick={() => choose(id)}
-              >
-                <Icon size={20} />
-                <span>
-                  <strong>{INFO[id].title}</strong>
-                  <small>
-                    {id === 'stale'
-                      ? `把超过 ${staleDays} 天没改过的文件收进“久未修改”，近期文件留在原处`
-                      : INFO[id].description}
-                  </small>
-                </span>
-              </button>
-            );
-          })}
+        <div className="draft-method">
+          <label>
+            分类方式
+            <select
+              aria-label="分类方式"
+              value={mode}
+              onChange={(e) => choose(e.target.value as DraftMode)}
+            >
+              {(['type', 'month', 'stale', 'content-project', 'custom'] as const).map((id) => (
+                <option key={id} value={id}>
+                  {INFO[id].title}
+                </option>
+              ))}
+            </select>
+          </label>
+          <p>{INFO[mode].description}</p>
+          <small>仅整理当前层的文件；按名称、扩展名与时间匹配，子文件夹保持原样。</small>
         </div>
         {mode === 'stale' && (
           <div className="draft-options">
@@ -248,7 +225,7 @@ export function DraftDialog({
         </div>
       </div>
       <footer className="modal-footer">
-        <span>可一次撤销整份草案。采用后请用“预览变更”检查硬盘冲突。</span>
+        <span>可一次撤销整份分类。采用后用“预览并应用”核对。</span>
         <button
           className="button primary"
           disabled={!draft.rows.length || !draft.next}

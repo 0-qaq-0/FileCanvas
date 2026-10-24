@@ -1,0 +1,258 @@
+import { _electron as electron, expect } from '@playwright/test';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import { createHash } from 'node:crypto';
+
+// All fixtures, profiles and screenshots stay in the project. The child uses this
+// directory as its temporary root, preserving the main process's test-profile guard.
+const shots = path.resolve('03_测试结果/简洁迭代');
+await fs.mkdir(shots, { recursive: true });
+const base = await fs.mkdtemp(path.join(shots, 'filecanvas-e2e-'));
+const root = path.join(base, '示例文件'),
+  data = path.join(base, '应用数据');
+await fs.mkdir(path.join(root, '参考资料', '图片'), { recursive: true });
+await fs.mkdir(path.join(root, '空文件夹'));
+await fs.mkdir(data);
+const svg = (color) =>
+  `<svg xmlns="http://www.w3.org/2000/svg" width="320" height="160"><rect width="320" height="160" fill="${color}"/><circle cx="245" cy="40" r="20" fill="#fff5cd"/><path d="M0 160 100 40 180 130 240 80 320 160" fill="#ffffff88"/></svg>`;
+const fixtures = {
+  '需求说明.txt': '项目资料，仅用于界面验证。\n'.repeat(60),
+  '报价清单.xlsx': Buffer.alloc(32 * 1024, 1),
+  '合作方案.pdf': Buffer.alloc(48 * 1024, 2),
+  '演示.pptx': Buffer.alloc(7 * 1024, 3),
+  '交付素材.zip': Buffer.alloc(128 * 1024, 4),
+  '处理脚本.py': 'print("example")\n',
+  '配音.wav': Buffer.alloc(4096, 5),
+  '封面.svg': svg('#7ab5a3'),
+  '参考资料/说明.md': '# 参考说明\n虚构内容，仅用于本机验证。',
+  '参考资料/图片/山景.svg': svg('#92b1c5'),
+  '参考资料/图片/海报.svg': svg('#c0a8bf'),
+};
+for (const [name, contents] of Object.entries(fixtures))
+  await fs.writeFile(path.join(root, name), contents);
+const env = {
+  ...process.env,
+  TEMP: shots,
+  TMP: shots,
+  FILECANVAS_E2E: '1',
+  FILECANVAS_TEST_DATA: data,
+  FILECANVAS_TEST_ROOT: root,
+};
+delete env.ELECTRON_RUN_AS_NODE;
+async function fingerprint() {
+  const result = {};
+  async function walk(dir) {
+    for (const entry of await fs.readdir(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        result[path.relative(root, full)] = 'folder';
+        await walk(full);
+      } else
+        result[path.relative(root, full)] = createHash('sha256')
+          .update(await fs.readFile(full))
+          .digest('hex');
+    }
+  }
+  await walk(root);
+  return result;
+}
+const before = await fingerprint(),
+  errors = [],
+  assertions = [];
+const pass = (message) => {
+  assertions.push(message);
+  console.log(`PASS ${message}`);
+};
+let app, page;
+try {
+  app = await electron.launch({ args: ['.'], env, timeout: 30000 });
+  page = await app.firstWindow();
+  page.on('pageerror', (error) => errors.push(error.message));
+  await page.setViewportSize({ width: 1280, height: 800 });
+  const card = (name) => page.locator(`[data-testid="canvas-card"][data-name="${name}"]`);
+  const item = (name) => page.locator(`[data-testid="view-item"][data-name="${name}"]`);
+  const clearToast = async () => {
+    const close = page.getByRole('button', { name: '关闭提示', exact: true });
+    if (await close.isVisible()) await close.click();
+  };
+  const more = async (label) => {
+    await page.getByLabel('更多工具', { exact: true }).click();
+    await page.getByRole('button', { name: label, exact: true }).click();
+  };
+  const noOverflow = async () =>
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+      true,
+    );
+  const shot = async (name) => {
+    await clearToast();
+    await page.screenshot({ path: path.join(shots, name), animations: 'disabled' });
+  };
+
+  await expect(page.getByRole('button', { name: '选择文件夹，开始整理' })).toBeVisible();
+  await expect(page.locator('.welcome-header > button:visible')).toHaveCount(0);
+  await shot('01-欢迎页.png');
+  await page.getByRole('button', { name: '选择文件夹，开始整理' }).click();
+  await expect(page.locator('.statusbar')).toContainText('11 个文件 · 3 个文件夹');
+  await expect(page.getByTestId('save-state')).toHaveText('项目已保存');
+  await expect(page.locator('.main-header').getByRole('button', { name: 'AI 助手' })).toBeHidden();
+  await expect(page.getByTestId('suggestion-bar')).toHaveCount(0);
+  await expect(page.getByTestId('operation-notice')).toBeHidden();
+  await expect(page.getByRole('button', { name: '画布视图' })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await expect(page.getByRole('button', { name: '平铺视图' })).toHaveCount(0);
+  await expect(card('参考资料').locator('.file-facts')).toContainText('3 个文件 · 1 个文件夹');
+  await expect(card('参考资料').locator('.file-facts')).toContainText('画布内');
+  await expect(card('参考资料').locator('.folder-types')).toHaveText('图片 / 文档');
+  await expect(card('合作方案.pdf').locator('.card-type')).toContainText('PDF');
+  await expect(card('报价清单.xlsx').locator('.file-facts')).toHaveText('32.0 KB');
+  await expect(card('空文件夹').locator('.file-facts')).toContainText('0 个文件');
+  await shot('02-简洁画布.png');
+  pass('欢迎页只突出开始入口；主界面收起低频工具；文件夹嵌套统计与文件大小可见');
+
+  await card('需求说明.txt').click();
+  await expect(page.locator('.file-inspector')).toHaveCount(0);
+  await page.locator('.selection-toolbar').getByRole('button', { name: '预览详情' }).click();
+  await expect(page.locator('.file-inspector .content-heading')).toContainText('文档 · TXT');
+  await expect(page.locator('.text-preview')).toContainText('项目资料');
+  await expect(page.locator('.inspector-ai')).not.toHaveAttribute('open');
+  await expect(page.getByTestId('path-inspector')).toContainText('路径未变');
+  await shot('03-预览详情.png');
+  await page.getByRole('button', { name: '收起内容预览' }).click();
+  await page.keyboard.press('Escape');
+  await page.getByLabel('更多工具', { exact: true }).click();
+  await expect(page.getByRole('button', { name: 'AI 助手', exact: true })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('button', { name: 'AI 助手', exact: true })).toBeHidden();
+  await page.getByLabel('更多工具', { exact: true }).click();
+  await page.locator('.breadcrumb').click();
+  await expect(page.getByRole('button', { name: 'AI 助手', exact: true })).toBeHidden();
+  const dragSource = await card('需求说明.txt').boundingBox();
+  const dragTarget = await card('空文件夹').boundingBox();
+  await page.mouse.move(dragSource.x + 60, dragSource.y + 60);
+  await page.mouse.down();
+  await page.mouse.move(dragTarget.x + 60, dragTarget.y + 60, { steps: 12 });
+  await page.mouse.up();
+  await expect(card('空文件夹').locator('.file-facts')).toContainText('1 个文件');
+  await expect(page.locator('.statusbar')).toContainText('1 项待变更');
+  expect(await fingerprint()).toEqual(before);
+  await page.keyboard.press('Control+z');
+  await expect(card('空文件夹').locator('.file-facts')).toContainText('0 个文件');
+  await expect(page.locator('.statusbar')).toContainText('0 项待变更');
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('button', { name: '全部收起', exact: true })).toBeHidden();
+  await page.locator('.canvas-options > summary').click();
+  await page.getByRole('button', { name: '按类型排列卡片', exact: true }).click();
+  await expect(page.locator('.canvas-options')).not.toHaveAttribute('open');
+  expect(await fingerprint()).toEqual(before);
+  pass(
+    '单击只选择，主动预览后显示内容；AI 默认收起；菜单可用 Esc/点击外部关闭；画布拖入文件夹及撤销正常，排列不改变真实文件',
+  );
+
+  await page.getByRole('button', { name: '列表视图' }).click();
+  await expect(item('合作方案.pdf').locator('.col-size')).toHaveText('48.0 KB');
+  await expect(item('参考资料').locator('.col-size')).not.toHaveText('0 B');
+  await item('需求说明.txt').dragTo(item('空文件夹'));
+  await expect(page.locator('.statusbar')).toContainText('1 项待变更');
+  await expect(item('空文件夹').locator('.col-size')).not.toHaveText('0 B');
+  expect(await fingerprint()).toEqual(before);
+  await page.keyboard.press('Control+z');
+  await expect(page.locator('.statusbar')).toContainText('0 项待变更');
+  await shot('04-列表.png');
+  pass('列表显示类型和容量，拖动归类会更新文件夹统计，撤销后还原，硬盘未改动');
+
+  await more('界面设置');
+  const settings = page.getByRole('dialog', { name: '界面设置' });
+  await settings.getByRole('radio', { name: '平铺', exact: true }).click();
+  await expect(page.getByRole('button', { name: '平铺视图' })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await expect(item('参考资料').locator('.file-facts')).toContainText('3 个文件');
+  await settings.getByRole('radio', { name: '分组', exact: true }).click();
+  await expect(page.locator('.group-head').first()).toContainText('文件夹');
+  await settings.getByRole('radio', { name: '画布', exact: true }).click();
+  await settings.getByRole('button', { name: '完成', exact: true }).click();
+  await page.setViewportSize({ width: 1000, height: 680 });
+  await noOverflow();
+  await shot('05-小窗口.png');
+  await page.setViewportSize({ width: 1280, height: 800 });
+  pass('设置内仍可使用平铺和分组；切回画布保留操作；1000×680 页面无横向溢出');
+
+  await page.getByRole('button', { name: '自动分类', exact: true }).click();
+  const draft = page.getByRole('dialog', { name: '自动分类', exact: true });
+  await expect(draft.getByLabel('分类方式')).toHaveValue('type');
+  await draft.getByLabel('分类方式').selectOption('custom');
+  await expect(draft).toContainText('还没有规则');
+  await draft.getByLabel('分类方式').selectOption('type');
+  await expect(draft.getByRole('switch', { name: '整理到 PDF', exact: true })).toBeVisible();
+  await shot('06-自动分类.png');
+  await draft.getByRole('button', { name: '采用草案到画布' }).click();
+  await expect(page.getByTestId('operation-notice')).toContainText('尚未应用');
+  expect(await fingerprint()).toEqual(before);
+  await page.keyboard.press('Control+z');
+  await expect(page.locator('.statusbar')).toContainText('0 项待变更');
+  await page.keyboard.press('Control+y');
+  await expect(page.getByTestId('operation-notice')).toContainText('尚未应用');
+  await shot('07-分类后的画布.png');
+  await page.getByRole('button', { name: /预览并应用/ }).click();
+  const preview = page.getByRole('dialog', { name: '预览整理结果' });
+  await expect(preview.locator('.preview-summary .warning-text')).toHaveCount(0);
+  await preview.getByRole('button', { name: '结构对照', exact: true }).click();
+  await expect(page.getByTestId('after-tree')).toContainText('合作方案.pdf');
+  await shot('08-应用前预览.png');
+  expect(await fingerprint()).toEqual(before);
+  await preview.getByRole('button', { name: '应用到本地文件', exact: true }).click();
+  await expect(preview).toHaveCount(0, { timeout: 20000 });
+  await expect(page.locator('.canvas-safe')).toContainText('已应用并核验');
+  const after = await fingerprint();
+  expect(after[path.join('PDF', '合作方案.pdf')]).toBe(before['合作方案.pdf']);
+  expect(after['合作方案.pdf']).toBeUndefined();
+  expect(
+    Object.values(after)
+      .filter((value) => value !== 'folder')
+      .sort(),
+  ).toEqual(
+    Object.values(before)
+      .filter((value) => value !== 'folder')
+      .sort(),
+  );
+  await shot('09-应用完成.png');
+  await page
+    .locator('.canvas-navigation')
+    .getByRole('button', { name: '恢复上次文件移动', exact: true })
+    .click();
+  await page.getByRole('button', { name: '恢复文件原位置', exact: true }).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0, { timeout: 20000 });
+  expect(await fingerprint()).toEqual(before);
+  pass(
+    '自动分类默认按类型，其他规则按需选择；分类可撤销/重做；真实应用后所有文件 SHA256 保持一致，恢复后完整目录一致',
+  );
+
+  // Show every tutorial step after changing control locations.
+  await more('新手教程');
+  for (let step = 0; step < 5; step++) {
+    await expect(page.locator('.tour-card')).toBeVisible();
+    await noOverflow();
+    await page
+      .getByRole('button', { name: step === 4 ? '开始整理' : '下一步', exact: true })
+      .click();
+  }
+  expect(await fingerprint()).toEqual(before);
+  expect(errors).toEqual([]);
+  pass('五步教程的入口和控件仍可操作，无页面运行错误');
+  await fs.writeFile(
+    path.join(shots, '验收.json'),
+    JSON.stringify({ status: 'passed', base, assertions, errors }, null, 2),
+  );
+} catch (error) {
+  if (page) await page.screenshot({ path: path.join(shots, '失败现场.png') }).catch(() => {});
+  await fs.writeFile(
+    path.join(shots, '验收.json'),
+    JSON.stringify({ status: 'failed', base, assertions, errors, error: String(error) }, null, 2),
+  );
+  throw error;
+} finally {
+  if (app) await app.close();
+}

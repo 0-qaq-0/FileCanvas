@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useMemo } from 'react';
 import {
   ArrowUpRight,
   X,
@@ -14,6 +14,7 @@ import type { CanvasNode, FileContent, FileAdvice, FileAiAccess, Project } from 
 import { relativeTarget } from '../domain/workspace';
 import { FileIcon, formatSize } from './FileIcon';
 import { PathInspector } from './PathInspector';
+import { fileInfo, summarizeFolders, folderDescription } from '../domain/file-info';
 function unwrap<T>(r: { ok: boolean; data?: T; error?: string }): T {
   if (!r.ok) throw new Error(r.error ?? '操作失败');
   return r.data as T;
@@ -42,6 +43,10 @@ export function FileInspector({
   onLocate(id: string | null): void;
 }) {
   const nodes = project.nodes;
+  const folderSummary = useMemo(
+    () => (node.kind === 'folder' ? summarizeFolders(nodes).get(node.id) : undefined),
+    [nodes, node.id, node.kind],
+  );
   const refreshRequested = useRef(false);
   const [content, setContent] = useState<{ id: string; value: FileContent } | null>(null),
     [error, setError] = useState('');
@@ -53,6 +58,7 @@ export function FileInspector({
     [answer, setAnswer] = useState(''),
     [asking, setAsking] = useState(false);
   const [refresh, setRefresh] = useState(0);
+  const [analysisOpen, setAnalysisOpen] = useState(false);
   useEffect(() => {
     const focus = () => setRefresh((v) => v + 1);
     window.addEventListener('focus', focus);
@@ -88,7 +94,7 @@ export function FileInspector({
   }, [node.id, node.source?.path, refresh]);
   useEffect(() => {
     let active = true;
-    if (!access?.enabled || !access.model || node.kind !== 'file') {
+    if (!analysisOpen || !access?.enabled || !access.model || node.kind !== 'file') {
       setThinking(false);
       return;
     }
@@ -116,7 +122,7 @@ export function FileInspector({
       active = false;
       clearTimeout(timer);
     };
-  }, [node.id, node.source?.path, access?.enabled, access?.model, revision, refresh]);
+  }, [node.id, node.source?.path, access?.enabled, access?.model, revision, refresh, analysisOpen]);
   const value = advice?.id === node.id ? advice.value : null,
     preview = content?.id === node.id ? content.value : null;
   const children = Object.values(nodes).filter((n) => n.parentId === node.id);
@@ -146,7 +152,7 @@ export function FileInspector({
   return (
     <aside className="content-panel file-inspector" aria-label="文件解释与预览">
       <div className="drawer-title">
-        <span>看懂文件，再整理</span>
+        <span>文件详情</span>
         <button className="icon-button" title="收起内容预览" onClick={onClose}>
           <X size={17} />
         </button>
@@ -163,12 +169,13 @@ export function FileInspector({
           <h2>{node.name}</h2>
           <small>
             {node.kind === 'folder'
-              ? `${children.length} 个子项`
-              : formatSize(node.source?.size ?? 0)}{' '}
+              ? `${folderSummary?.files ?? 0} 个文件 · 画布内`
+              : `${fileInfo(node.name).description} · ${formatSize(node.source?.size)}`}{' '}
             · 可从这里拖到画布
           </small>
         </div>
       </div>
+      {folderSummary && <p className="folder-detail-summary">{folderDescription(folderSummary)}</p>}
       {node.kind === 'file' && (
         <button className="button inspector-open" onClick={() => onOpen(node.id)}>
           <ExternalLink size={14} />
@@ -177,169 +184,179 @@ export function FileInspector({
       )}
       <div className="inspector-scroll">
         {node.kind === 'file' && (
-          <section className="file-advice-section">
-            <div className="file-advice-heading">
-              <span>
-                <Sparkles size={16} />
-                文件解释与推荐
-              </span>
-              <button className="text-button" onClick={onSettings}>
-                模型设置
-              </button>
-            </div>
-            {access && !access.model ? (
-              <p className="inspector-note">
-                先配置模型，即可自动解释选中文件并推荐位置。
+          <details
+            className="inspector-ai"
+            open={analysisOpen}
+            onToggle={(e) => setAnalysisOpen(e.currentTarget.open)}
+          >
+            <summary>
+              <Sparkles size={15} />
+              AI 解释与位置建议（可选）
+            </summary>
+            <section className="file-advice-section">
+              <div className="file-advice-heading">
+                <span>
+                  <Sparkles size={16} />
+                  文件解释与推荐
+                </span>
                 <button className="text-button" onClick={onSettings}>
-                  去配置
+                  模型设置
                 </button>
-              </p>
-            ) : (
-              <label className="check-line file-ai-consent">
-                <input
-                  type="checkbox"
-                  checked={access?.enabled ?? false}
-                  onChange={(e) => {
-                    const enabled = e.target.checked;
-                    setAccess((old) => (old ? { ...old, enabled } : old));
-                    void window.fileCanvas
-                      .fileAiAccess(enabled)
-                      .then((r) => setAccess(unwrap(r)))
-                      .catch((err) => {
-                        setAccess((old) => (old ? { ...old, enabled: false } : old));
-                        setError(err.message);
-                      });
-                  }}
-                />
-                允许本项目使用 {access?.model || '当前模型'}{' '}
-                自动分析所选文件与相关文本片段（本次运行有效）
-              </label>
-            )}
-            {access?.model && (
-              <small className="inspector-service">模型服务：{access.baseUrl}</small>
-            )}
-            {thinking && (
-              <p className="inspector-thinking">
-                <LoaderCircle size={16} className="spin" />
-                正在结合项目内容理解这个文件…
-              </p>
-            )}
-            {value && (
-              <div data-testid="file-advice">
-                <div className="advice-purpose">
-                  <small>这是什么？{!value.readBody && ' · 仅按文件信息推测'}</small>
-                  <h3>{value.purpose}</h3>
-                </div>
-                <div className="advice-contents">
-                  <strong>主要包括</strong>
-                  <ul>
-                    {value.contents.map((s, i) => (
-                      <li key={i}>{s}</li>
-                    ))}
-                  </ul>
-                </div>
-                <p className="advice-project-role">
-                  <strong>在项目中的作用</strong>
-                  {value.projectRole}
-                </p>
-                <div
-                  className={`file-recommendation ${value.action === 'review-delete' ? 'needs-review' : ''}`}
-                >
-                  <small>最推荐的处理</small>
-                  <h3>
-                    {value.action === 'keep'
-                      ? '保留在当前位置'
-                      : value.action === 'review-delete'
-                        ? '标记为待删除候选'
-                        : `${value.action === 'archive' ? '归档到' : '放到'}：${destination}`}
-                  </h3>
-                  <p>{value.reason}</p>
-                  {value.action !== 'keep' && (
-                    <button
-                      className="button primary"
-                      disabled={
-                        alreadyPlaced || (value.action === 'review-delete' && node.reviewDelete)
-                      }
-                      onClick={() => onAdopt(node.id, value)}
-                    >
-                      {value.action === 'review-delete'
-                        ? node.reviewDelete
-                          ? '已标记，原文件保留'
-                          : '标记待删除（不删除文件）'
-                        : alreadyPlaced
-                          ? '已在推荐位置'
-                          : `采用推荐位置`}
-                    </button>
-                  )}
-                  {['move', 'archive'].includes(value.action) && !value.newFolder && (
-                    <button className="text-button" onClick={() => onLocate(value.destinationId)}>
-                      <MapPin size={13} />
-                      在画布上找到这里
-                    </button>
-                  )}
-                </div>
-                <details className="advice-evidence">
-                  <summary>为什么这样判断？查看 {value.sources.length} 段依据</summary>
-                  {value.sources.map((s, i) => (
-                    <div key={i}>
-                      <strong>{s.path}</strong>
-                      <pre>{s.text}</pre>
-                    </div>
-                  ))}
-                </details>
-                <button
-                  className="text-button"
-                  disabled={thinking}
-                  onClick={() => {
-                    setAdvice(null);
-                    refreshRequested.current = true;
-                    setRevision((v) => v + 1);
-                  }}
-                >
-                  <RefreshCw size={13} />
-                  重新分析
-                </button>
-                <form
-                  className="file-followup"
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    if (asking) return;
-                    setAsking(true);
-                    setError('');
-                    window.fileCanvas
-                      .followupFile(project, node.id, question)
-                      .then((r) => setAnswer(unwrap(r)))
-                      .catch((err) => setError(err.message))
-                      .finally(() => setAsking(false));
-                  }}
-                >
-                  <label>
-                    继续问这个文件
-                    <input
-                      aria-label="继续问这个文件"
-                      value={question}
-                      maxLength={2000}
-                      onChange={(e) => setQuestion(e.target.value)}
-                      placeholder="例如：为什么放这里？和另一份有何区别？"
-                    />
-                  </label>
-                  <button className="button" disabled={asking || !question.trim()}>
-                    <Send size={14} />
-                    {asking ? '回答中…' : '发送'}
-                  </button>
-                </form>
-                {answer && <p className="file-followup-answer">{answer}</p>}
               </div>
-            )}
-            {error && (
-              <p role="alert" className="inline-error">
-                {error}
-                <button className="text-button" onClick={() => setRevision((v) => v + 1)}>
-                  重试
-                </button>
-              </p>
-            )}
-          </section>
+              {access && !access.model ? (
+                <p className="inspector-note">
+                  先配置模型，即可自动解释选中文件并推荐位置。
+                  <button className="text-button" onClick={onSettings}>
+                    去配置
+                  </button>
+                </p>
+              ) : (
+                <label className="check-line file-ai-consent">
+                  <input
+                    type="checkbox"
+                    checked={access?.enabled ?? false}
+                    onChange={(e) => {
+                      const enabled = e.target.checked;
+                      setAccess((old) => (old ? { ...old, enabled } : old));
+                      void window.fileCanvas
+                        .fileAiAccess(enabled)
+                        .then((r) => setAccess(unwrap(r)))
+                        .catch((err) => {
+                          setAccess((old) => (old ? { ...old, enabled: false } : old));
+                          setError(err.message);
+                        });
+                    }}
+                  />
+                  允许本项目使用 {access?.model || '当前模型'}{' '}
+                  自动分析所选文件与相关文本片段（本次运行有效）
+                </label>
+              )}
+              {access?.model && (
+                <small className="inspector-service">模型服务：{access.baseUrl}</small>
+              )}
+              {thinking && (
+                <p className="inspector-thinking">
+                  <LoaderCircle size={16} className="spin" />
+                  正在结合项目内容理解这个文件…
+                </p>
+              )}
+              {value && (
+                <div data-testid="file-advice">
+                  <div className="advice-purpose">
+                    <small>这是什么？{!value.readBody && ' · 仅按文件信息推测'}</small>
+                    <h3>{value.purpose}</h3>
+                  </div>
+                  <div className="advice-contents">
+                    <strong>主要包括</strong>
+                    <ul>
+                      {value.contents.map((s, i) => (
+                        <li key={i}>{s}</li>
+                      ))}
+                    </ul>
+                  </div>
+                  <p className="advice-project-role">
+                    <strong>在项目中的作用</strong>
+                    {value.projectRole}
+                  </p>
+                  <div
+                    className={`file-recommendation ${value.action === 'review-delete' ? 'needs-review' : ''}`}
+                  >
+                    <small>最推荐的处理</small>
+                    <h3>
+                      {value.action === 'keep'
+                        ? '保留在当前位置'
+                        : value.action === 'review-delete'
+                          ? '标记为待删除候选'
+                          : `${value.action === 'archive' ? '归档到' : '放到'}：${destination}`}
+                    </h3>
+                    <p>{value.reason}</p>
+                    {value.action !== 'keep' && (
+                      <button
+                        className="button primary"
+                        disabled={
+                          alreadyPlaced || (value.action === 'review-delete' && node.reviewDelete)
+                        }
+                        onClick={() => onAdopt(node.id, value)}
+                      >
+                        {value.action === 'review-delete'
+                          ? node.reviewDelete
+                            ? '已标记，原文件保留'
+                            : '标记待删除（不删除文件）'
+                          : alreadyPlaced
+                            ? '已在推荐位置'
+                            : `采用推荐位置`}
+                      </button>
+                    )}
+                    {['move', 'archive'].includes(value.action) && !value.newFolder && (
+                      <button className="text-button" onClick={() => onLocate(value.destinationId)}>
+                        <MapPin size={13} />
+                        在画布上找到这里
+                      </button>
+                    )}
+                  </div>
+                  <details className="advice-evidence">
+                    <summary>为什么这样判断？查看 {value.sources.length} 段依据</summary>
+                    {value.sources.map((s, i) => (
+                      <div key={i}>
+                        <strong>{s.path}</strong>
+                        <pre>{s.text}</pre>
+                      </div>
+                    ))}
+                  </details>
+                  <button
+                    className="text-button"
+                    disabled={thinking}
+                    onClick={() => {
+                      setAdvice(null);
+                      refreshRequested.current = true;
+                      setRevision((v) => v + 1);
+                    }}
+                  >
+                    <RefreshCw size={13} />
+                    重新分析
+                  </button>
+                  <form
+                    className="file-followup"
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      if (asking) return;
+                      setAsking(true);
+                      setError('');
+                      window.fileCanvas
+                        .followupFile(project, node.id, question)
+                        .then((r) => setAnswer(unwrap(r)))
+                        .catch((err) => setError(err.message))
+                        .finally(() => setAsking(false));
+                    }}
+                  >
+                    <label>
+                      继续问这个文件
+                      <input
+                        aria-label="继续问这个文件"
+                        value={question}
+                        maxLength={2000}
+                        onChange={(e) => setQuestion(e.target.value)}
+                        placeholder="例如：为什么放这里？和另一份有何区别？"
+                      />
+                    </label>
+                    <button className="button" disabled={asking || !question.trim()}>
+                      <Send size={14} />
+                      {asking ? '回答中…' : '发送'}
+                    </button>
+                  </form>
+                  {answer && <p className="file-followup-answer">{answer}</p>}
+                </div>
+              )}
+              {error && (
+                <p role="alert" className="inline-error">
+                  {error}
+                  <button className="text-button" onClick={() => setRevision((v) => v + 1)}>
+                    重试
+                  </button>
+                </p>
+              )}
+            </section>
+          </details>
         )}
         <section className="inline-file-preview">
           <h3>{node.kind === 'folder' ? '文件夹内部 · 每一项都可拖动' : '内容预览'}</h3>

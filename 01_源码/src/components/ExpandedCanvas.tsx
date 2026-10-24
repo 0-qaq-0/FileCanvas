@@ -27,7 +27,9 @@ import {
 import type { ArrangeMode, Positions } from '../domain/canvas-layout';
 import type { FilterResult } from '../domain/filter';
 import { ICON_SCALE_STEP } from '../domain/preferences';
-import { FileIcon, formatSize } from './FileIcon';
+import { FileIcon } from './FileIcon';
+import { FileFacts, FolderVisual } from './FileFacts';
+import { fileInfo, summarizeFolders, folderDescription, folderSize } from '../domain/file-info';
 interface Props {
   rootPath: string;
   initialExpanded?: string[];
@@ -70,7 +72,8 @@ export function CardVisual({ node, previews }: { node: CanvasNode; previews: boo
   const [content, setContent] = useState<FileContent | null>(null);
   useEffect(() => {
     let active = true;
-    if (previews && node.source && node.kind === 'file')
+    setContent(null);
+    if (previews && node.source && node.kind === 'file' && fileInfo(node.name).tone === 'image')
       window.fileCanvas
         .readContent(node.source.path)
         .then((r) => {
@@ -80,7 +83,7 @@ export function CardVisual({ node, previews }: { node: CanvasNode; previews: boo
     return () => {
       active = false;
     };
-  }, [previews, node.id, node.source?.path, node.source?.mtimeMs]);
+  }, [previews, node.id, node.name, node.source?.path, node.source?.mtimeMs]);
   if (node.kind === 'folder') return <FileIcon name={node.name} folder size={42} />;
   if (!previews) return <FileIcon name={node.name} size={39} />;
   if (content?.kind === 'image')
@@ -92,13 +95,6 @@ export function CardVisual({ node, previews }: { node: CanvasNode; previews: boo
         draggable={false}
         onError={() => setContent({ kind: 'unsupported' })}
       />
-    );
-  if (content?.kind === 'text' && content.text)
-    return (
-      <div className="card-document">
-        <FileIcon name={node.name} size={15} />
-        <span>{content.text.slice(0, 90)}</span>
-      </div>
     );
   return <FileIcon name={node.name} size={39} />;
 }
@@ -116,6 +112,7 @@ type Gesture =
   | { type: 'box'; x: number; y: number; initial: string[]; pointerId: number };
 export function Canvas(props: Props) {
   const { nodes, parentId, selected, onSelect, onLayout, onMove } = props;
+  const folderSummaries = useMemo(() => summarizeFolders(nodes), [nodes]);
   // All layout, hit-testing and dragging stay in canvas coordinates; the zoom only scales how
   // the surface is painted, and point() converts pointer positions back.
   const zoom = props.zoom ?? 1,
@@ -558,48 +555,56 @@ export function Canvas(props: Props) {
             </button>
           )}
         </div>
-        <div>
+        <div className="canvas-actions">
           <button
             className="text-button"
-            onClick={() =>
-              setExpanded(
-                new Set(
-                  Object.values(nodes)
-                    .filter((n) => n.kind === 'folder')
-                    .slice(0, 100)
-                    .map((n) => n.id),
-                ),
-              )
-            }
-          >
-            展开文件夹
-          </button>
-          <button className="text-button" onClick={() => setExpanded(new Set())}>
-            全部收起
-          </button>
-          <button className="text-button" onClick={props.onBrowse}>
-            <FolderOpen size={14} />
-            添加文件
-          </button>
-          <button
-            className="text-button"
-            title={
-              selected.length
-                ? '只把选中的卡片排整齐，保持现在的顺序（Ctrl+Z 可撤销）'
-                : '把这一层的卡片排整齐，保持现在的顺序（Ctrl+Z 可撤销）'
-            }
+            title="只调整卡片位置，不改变文件分类"
             onClick={() => arrange('tidy')}
           >
             <LayoutGrid size={14} />
             {selected.length ? `排列所选 (${selected.length})` : '排列整齐'}
           </button>
-          <button
-            className="text-button"
-            title="文件夹在前，相同类型的文件各占一行，方便框选后一起移走"
-            onClick={() => arrange('type')}
+          <details
+            className="canvas-options"
+            onClick={(e) => {
+              if ((e.target as HTMLElement).closest('button')) e.currentTarget.open = false;
+            }}
           >
-            按类型排列
-          </button>
+            <summary>
+              画布选项 <ChevronDown size={13} />
+            </summary>
+            <div className="canvas-options-menu">
+              <button
+                className="text-button"
+                onClick={() =>
+                  setExpanded(
+                    new Set(
+                      Object.values(nodes)
+                        .filter((n) => n.kind === 'folder')
+                        .slice(0, 100)
+                        .map((n) => n.id),
+                    ),
+                  )
+                }
+              >
+                展开文件夹
+              </button>
+              <button className="text-button" onClick={() => setExpanded(new Set())}>
+                全部收起
+              </button>
+              <button className="text-button" onClick={props.onBrowse}>
+                <FolderOpen size={14} />
+                添加文件
+              </button>
+              <button
+                className="text-button"
+                title="文件夹在前，相同类型的文件各占一行，方便框选后一起移走"
+                onClick={() => arrange('type')}
+              >
+                按类型排列卡片
+              </button>
+            </div>
+          </details>
         </div>
       </div>
       <div
@@ -756,7 +761,6 @@ export function Canvas(props: Props) {
                     )
                       return;
                     if (isFolder && !r.expanded) toggle(node.id);
-                    else if (!r.expanded) props.onInspect(node.id);
                   }}
                   onDoubleClick={() => {
                     if (!isFolder && !moved.current) props.onOpen(node.id);
@@ -800,7 +804,9 @@ export function Canvas(props: Props) {
                         {pendingLabel(node) && (
                           <span className="pending-badge">{pendingLabel(node)}</span>
                         )}
-                        <small>{children(nodes, node.id).length}</small>
+                        <small title={folderDescription(folderSummaries.get(node.id)!)}>
+                          {folderSummaries.get(node.id)?.files ?? 0} 个文件
+                        </small>
                         <button
                           title={`预览 ${node.name}`}
                           onClick={() => props.onInspect(node.id)}
@@ -816,18 +822,21 @@ export function Canvas(props: Props) {
                       </div>
                       <div className="folder-container-caption">
                         {children(nodes, node.id).length
-                          ? '内部文件可直接拖入、拖出'
+                          ? `${folderSize(folderSummaries.get(node.id)!)} · 画布内文件 · 可直接拖入、拖出`
                           : '拖文件到这里'}
                       </div>
                     </>
                   ) : (
                     <>
-                      <span className="card-type">
+                      <span
+                        className="card-type"
+                        title={isFolder ? '文件夹' : fileInfo(node.name).description}
+                      >
                         {node.reviewDelete
                           ? '待删除候选 · 未删除'
                           : isFolder
-                            ? '点击展开'
-                            : node.name.split('.').at(-1)?.toUpperCase()}
+                            ? '文件夹'
+                            : fileInfo(node.name).description}
                       </span>
                       {pendingLabel(node) && (
                         <span className="pending-badge card-pending">{pendingLabel(node)}</span>
@@ -835,15 +844,15 @@ export function Canvas(props: Props) {
                       {inside > 0 && !hit && (
                         <span className="filter-badge">含 {inside} 个匹配</span>
                       )}
-                      <CardVisual node={node} previews={previews} />
+                      {isFolder ? (
+                        <FolderVisual summary={folderSummaries.get(node.id)} />
+                      ) : (
+                        <CardVisual node={node} previews={previews} />
+                      )}
                       <span className="card-name" title={node.name}>
                         {node.name}
                       </span>
-                      <small>
-                        {isFolder
-                          ? `${children(nodes, node.id).length} 个子项`
-                          : formatSize(node.source?.size ?? 0)}
-                      </small>
+                      <FileFacts node={node} summary={folderSummaries.get(node.id)} />
                       <button
                         className="card-preview-button"
                         title={isFolder ? `展开 ${node.name}` : `预览 ${node.name}`}
@@ -886,9 +895,7 @@ export function Canvas(props: Props) {
         </div>
       </div>
       <div className="canvas-hint">
-        <span>
-          拖到哪放在哪 · 拖入文件夹即移入 · Ctrl+A 全选 · 拖动时按住 Alt 对齐网格 · Ctrl 多选
-        </span>
+        <span>拖入文件夹即可归类 · 单击选择，点击眼睛预览 · 确认应用后才移动本地文件</span>
         <span>Ctrl+Z 撤销</span>
       </div>
     </>

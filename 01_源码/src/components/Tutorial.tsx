@@ -30,7 +30,7 @@ export const TOUR_STEPS: Step[] = [
     icon: MousePointer2,
     title: '这是你的整理画布',
     body: [
-      '每个文件、文件夹都是一张卡片：点文件夹原地展开，点文件看内容，拖动卡片就是在整理。',
+      '卡片直接显示类型和大小，文件夹显示画布内文件的合计。点文件夹原地展开，点眼睛预览，拖入文件夹即可归类。',
       '现在的所有拖动都只是在“排计划”，硬盘上的真实文件一个都不会动。',
     ],
   },
@@ -48,7 +48,7 @@ export const TOUR_STEPS: Step[] = [
     id: 'draft',
     target: '[data-tour="draft"]',
     icon: Layers3,
-    title: '不想一个个拖？先出一份草案',
+    title: '不想一个个拖？试试自动分类',
     body: [
       '按内容项目、文件类型、修改月份等方式一键生成分类方案，可以逐组开关，也能在“我的规则”里写自己的规则。',
       '采用后仍只改画布，可以一次撤销。',
@@ -58,7 +58,7 @@ export const TOUR_STEPS: Step[] = [
     id: 'apply',
     target: '[data-tour="apply"]',
     icon: ScanEye,
-    title: '满意了，再检查并应用',
+    title: '满意了，再预览并应用',
     body: [
       '这里会逐项列出每个文件“现在在哪 → 将移到哪”，并检查重名和冲突。',
       '确认无误后点“应用到本地文件”，才会真正移动。',
