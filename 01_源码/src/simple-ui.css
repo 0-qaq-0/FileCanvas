@@ -69,40 +69,63 @@
 .canvas-actions {
   flex-shrink: 0;
 }
-.canvas-options {
-  position: relative;
+.context-menu {
+  animation: none;
+  min-width: 238px;
+  max-width: min(340px, calc(100vw - 8px));
+  max-height: calc(100vh - 8px);
+  overflow-y: auto;
 }
-.canvas-options summary {
+.context-menu-title {
+  padding: 8px 10px;
+  font-size: 11px;
+  color: var(--fc-muted);
+  max-width: 285px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--fc-line);
+  margin-bottom: 4px;
+}
+.context-menu button {
+  min-height: 34px;
+}
+.context-menu button > svg {
+  flex-shrink: 0;
+}
+.context-icon-placeholder {
+  flex: 0 0 14px;
+}
+.context-item-copy {
   display: flex;
-  align-items: center;
-  gap: 5px;
-  cursor: pointer;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.context-item-copy small {
+  color: var(--fc-muted);
+  font-size: 10px;
+}
+.context-shortcut {
+  margin-left: auto;
+  padding-left: 16px;
+  color: var(--fc-muted);
+  font-size: 10px;
+  white-space: nowrap;
+}
+.context-menu button:disabled {
+  opacity: 0.4;
+}
+.context-menu button:disabled:hover {
+  background: transparent;
+}
+.canvas-first .selection-toolbar {
+  gap: 12px;
+  padding: 5px 9px 5px 13px;
+  min-height: 36px;
+}
+.selection-toolbar strong {
   font-size: 12px;
-  padding: 6px 8px;
-  border-radius: 7px;
-  list-style: none;
-}
-.canvas-options summary:hover,
-.canvas-options[open] summary {
-  background: var(--fc-brand-soft);
-}
-.canvas-options-menu {
-  position: absolute;
-  top: calc(100% + 5px);
-  right: 0;
-  width: 180px;
-  padding: 6px;
-  background: white;
-  border: 1px solid var(--fc-line);
-  border-radius: 10px;
-  box-shadow: var(--fc-shadow-2);
-  z-index: 35;
-}
-.canvas-options-menu .text-button {
-  display: flex;
-  width: 100%;
-  justify-content: flex-start;
-  padding: 9px 10px;
 }
 .canvas-first .canvas-surface,
 .listing-scroll {

@@ -31,6 +31,7 @@ import {
   GraduationCap,
   SlidersHorizontal,
   Shapes,
+  ChevronDown,
 } from 'lucide-react';
 import type {
   ApiResult,
@@ -136,6 +137,7 @@ export default function App() {
   const [name, setName] = useState('');
   const [nameError, setNameError] = useState('');
   const [renameId, setRenameId] = useState('');
+  const [createParentId, setCreateParentId] = useState<string | null>(null);
   const [records, setRecords] = useState<ProjectRecord[]>([]);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [showUnchanged, setShowUnchanged] = useState(false);
@@ -152,7 +154,12 @@ export default function App() {
   const [problem, setProblem] = useState('');
   const [refreshReview, setRefreshReview] = useState<RefreshReview | null>(null);
   const [draftStart, setDraftStart] = useState<DraftMode | undefined>(undefined);
-  const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null);
+  const [menu, setMenu] = useState<{
+    id: string | null;
+    x: number;
+    y: number;
+    extras: MenuItem[];
+  } | null>(null);
   const [filter, setFilter] = useState('');
   const filterRef = useRef<HTMLInputElement>(null);
   const [dismissedTips, setDismissedTips] = useState<string[]>([]);
@@ -377,12 +384,10 @@ export default function App() {
   useEffect(() => {
     function dismiss(event: PointerEvent | KeyboardEvent) {
       if (event instanceof KeyboardEvent && event.key !== 'Escape') return;
-      document
-        .querySelectorAll<HTMLDetailsElement>('.more-tools[open], .canvas-options[open]')
-        .forEach((menu) => {
-          if (event instanceof KeyboardEvent || !menu.contains(event.target as Node))
-            menu.open = false;
-        });
+      document.querySelectorAll<HTMLDetailsElement>('.more-tools[open]').forEach((menu) => {
+        if (event instanceof KeyboardEvent || !menu.contains(event.target as Node))
+          menu.open = false;
+      });
     }
     document.addEventListener('pointerdown', dismiss);
     document.addEventListener('keydown', dismiss);
@@ -484,10 +489,14 @@ export default function App() {
     setSelected([]);
     setInspectId(null);
   }
-  function openCreate() {
+  function openCreateIn(destination: string | null) {
+    setCreateParentId(destination);
     setName('新建文件夹');
     setNameError('');
     setDialog('create');
+  }
+  function openCreate() {
+    openCreateIn(parentId);
   }
   function openCollect() {
     const nodes = current.current?.project.nodes;
@@ -520,7 +529,7 @@ export default function App() {
       }
       const next =
         dialog === 'create'
-          ? addFolder(current.current, name, parentId)
+          ? addFolder(current.current, name, createParentId)
           : renameNode(current.current, renameId, name);
       replace(next);
       setDialog(null);
@@ -563,14 +572,55 @@ export default function App() {
         notify('已在资源管理器中定位该文件。');
       });
   }
-  function menuItems(id: string): MenuItem[] {
+  function openNodeMenu(id: string, x: number, y: number, extras: MenuItem[] = []) {
+    if (operationBusy.current || !current.current?.project.nodes[id]) return;
+    if (!selected.includes(id)) setSelected([id]);
+    setMenu({ id, x, y, extras });
+  }
+  function openBackgroundMenu(x: number, y: number, extras: MenuItem[]) {
+    if (operationBusy.current || !current.current) return;
+    setSelected([]);
+    setMenu({ id: null, x, y, extras });
+  }
+  function backgroundItems(extras: MenuItem[]): MenuItem[] {
+    return [
+      { label: '新建文件夹', icon: <FolderPlus size={14} />, onClick: openCreate },
+      ...extras.map((item, index) => ({ ...item, group: index === 0 || item.group })),
+      {
+        label: '撤销未应用的修改',
+        icon: <Undo2 size={14} />,
+        shortcut: 'Ctrl+Z',
+        disabled: !state?.past.length,
+        group: true,
+        onClick: () => edit(undo),
+      },
+      ...(state?.future.length
+        ? [
+            {
+              label: '重做',
+              icon: <Redo2 size={14} />,
+              shortcut: 'Ctrl+Y',
+              onClick: () => edit(redo),
+            },
+          ]
+        : []),
+      {
+        label: '刷新并核对',
+        icon: <RefreshCw size={14} />,
+        disabled: !!operation?.needsRecovery,
+        group: true,
+        onClick: checkRefresh,
+      },
+    ];
+  }
+  function menuItems(id: string, extras: MenuItem[]): MenuItem[] {
     const node = current.current?.project.nodes[id];
     if (!node) return [];
     const many = selected.length > 1 && selected.includes(id);
     const items: MenuItem[] = [];
-    if (!many && node.kind === 'file')
+    if (!many)
       items.push({
-        label: '查看内容和解释',
+        label: '预览详情',
         icon: <Eye size={14} />,
         onClick: () => {
           setInspectId(id);
@@ -579,10 +629,11 @@ export default function App() {
       });
     if (!many && node.kind === 'folder')
       items.push({
-        label: '单独查看此文件夹',
+        label: '打开文件夹',
         icon: <Expand size={14} />,
         onClick: () => enter(id),
       });
+    if (!many) items.push(...extras);
     if (!many && node.kind === 'file' && node.source)
       items.push({
         label: '用系统应用打开',
@@ -602,12 +653,40 @@ export default function App() {
         onClick: () => setDialog('move'),
         group: items.length > 0,
       },
-      { label: '移入新文件夹', icon: <FolderPlus size={14} />, onClick: openCollect },
+      {
+        label: '移入新文件夹',
+        icon: <FolderPlus size={14} />,
+        onClick: openCollect,
+        shortcut: 'Ctrl+Shift+N',
+      },
       many
-        ? { label: '批量重命名', icon: <Pencil size={14} />, onClick: () => setDialog('batch') }
-        : { label: '重命名', icon: <Pencil size={14} />, onClick: () => openRename(id) },
-      { label: '移出画布', icon: <X size={14} />, onClick: remove, danger: true, group: true },
+        ? {
+            label: '批量重命名',
+            icon: <Pencil size={14} />,
+            onClick: () => setDialog('batch'),
+            shortcut: 'F2',
+          }
+        : {
+            label: '重命名',
+            icon: <Pencil size={14} />,
+            onClick: () => openRename(id),
+            shortcut: 'F2',
+          },
     );
+    if (!many && node.kind === 'folder')
+      items.push({
+        label: '新建子文件夹',
+        icon: <FolderPlus size={14} />,
+        onClick: () => openCreateIn(id),
+      });
+    items.push({
+      label: '移出画布',
+      hint: '不删除本地文件',
+      icon: <X size={14} />,
+      onClick: remove,
+      danger: true,
+      group: true,
+    });
     return items;
   }
   function adoptFile(id: string, advice: FileAdvice) {
@@ -727,10 +806,6 @@ export default function App() {
         >
           <Layers3 size={16} />
           自动分类
-        </button>
-        <button className="button subtle" onClick={openCreate} disabled={!state || busy}>
-          <FolderPlus size={16} />
-          新建文件夹
         </button>
         <button
           className="icon-button"
@@ -1022,40 +1097,17 @@ export default function App() {
             {selected.length > 0 && (
               <div className="selection-toolbar">
                 <strong>已选择 {selected.length} 项</strong>
-                {selected.length === 1 && (
-                  <button
-                    className="text-button"
-                    onClick={() => {
-                      setInspectId(selected[0]);
-                      setShowAi(false);
-                    }}
-                  >
-                    <Eye size={14} />
-                    预览详情
-                  </button>
-                )}
-                <button className="text-button" onClick={() => setDialog('move')}>
-                  <MoveRight size={14} />
-                  移动到…
-                </button>
-                <button className="text-button" onClick={openCollect}>
-                  <FolderPlus size={14} />
-                  移入新文件夹
-                </button>
-                {selected.length > 1 ? (
-                  <button className="text-button" onClick={() => setDialog('batch')}>
-                    <Pencil size={14} />
-                    批量重命名
-                  </button>
-                ) : (
-                  <button className="text-button" onClick={() => openRename(selected[0])}>
-                    <Pencil size={14} />
-                    重命名
-                  </button>
-                )}
-                <button className="text-button" onClick={remove}>
-                  <X size={14} />
-                  移出画布
+                <button
+                  className="text-button"
+                  aria-haspopup="menu"
+                  aria-label="所选文件操作"
+                  disabled={busy}
+                  onClick={(e) => {
+                    const box = e.currentTarget.getBoundingClientRect();
+                    openNodeMenu(selected[0], box.left, box.bottom + 4);
+                  }}
+                >
+                  操作 <ChevronDown size={14} />
                 </button>
                 <button className="icon-button" title="取消选择" onClick={() => setSelected([])}>
                   <X size={14} />
@@ -1085,7 +1137,8 @@ export default function App() {
                 }}
                 onBrowse={() => setShowBrowser(true)}
                 onOpen={openFile}
-                onContextMenu={(id, x, y) => setMenu({ id, x, y })}
+                onContextMenu={openNodeMenu}
+                onBackgroundMenu={openBackgroundMenu}
                 filter={filter}
                 filterResult={filterResult}
                 filterRef={filterRef}
@@ -1144,7 +1197,8 @@ export default function App() {
                   setShowAi(false);
                 }}
                 onOpen={openFile}
-                onContextMenu={(id, x, y) => setMenu({ id, x, y })}
+                onContextMenu={openNodeMenu}
+                onBackgroundMenu={openBackgroundMenu}
                 onMove={move}
                 onImport={add}
                 onBrowse={() => setShowBrowser(true)}
@@ -1331,7 +1385,15 @@ export default function App() {
         <ContextMenu
           x={menu.x}
           y={menu.y}
-          items={menuItems(menu.id)}
+          label={menu.id ? '文件操作' : '画布操作'}
+          title={
+            menu.id
+              ? selected.length > 1 && selected.includes(menu.id)
+                ? `已选择 ${selected.length} 项`
+                : nodes[menu.id]?.name
+              : '当前文件夹'
+          }
+          items={menu.id ? menuItems(menu.id, menu.extras) : backgroundItems(menu.extras)}
           onClose={() => setMenu(null)}
         />
       )}
@@ -1357,9 +1419,11 @@ export default function App() {
                 : '重命名虚拟条目'
           }
           subtitle={
-            dialog === 'collect'
-              ? '新文件夹建在选中项所在的位置；仅修改虚拟整理项目，原始文件不会改变。'
-              : '仅修改虚拟整理项目，原始文件不会改变。'
+            dialog === 'create'
+              ? `将在“${createParentId ? nodes[createParentId]?.name : state?.project.name}”中新建，仅修改整理计划。`
+              : dialog === 'collect'
+                ? '新文件夹建在选中项所在的位置；仅修改虚拟整理项目，原始文件不会改变。'
+                : '仅修改虚拟整理项目，原始文件不会改变。'
           }
           onClose={() => setDialog(null)}
         >
@@ -1555,7 +1619,7 @@ export default function App() {
             <p>
               <strong>2. 拖动整理，或自动分类</strong>
               <br />
-              点文件夹可同屏展开；拖入文件夹即可归类。单击文件只选择，点眼睛或“预览详情”查看内容，双击用系统应用打开。“自动分类”默认按类型，其他方式可在下拉框选择。
+              点文件夹可同屏展开；拖入文件夹即可归类。右键文件可预览、改名或移动，多选后右键可批量处理。右键文件夹可新建子文件夹，右键空白处可新建、全选和排列。不用右键时，可点选中栏的“操作”或“画布选项”。“自动分类”默认按类型。
             </p>
             <p>
               <strong>3. 预览并应用</strong>

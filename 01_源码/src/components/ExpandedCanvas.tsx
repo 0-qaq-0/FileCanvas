@@ -26,6 +26,7 @@ import {
 } from '../domain/canvas-layout';
 import type { ArrangeMode, Positions } from '../domain/canvas-layout';
 import type { FilterResult } from '../domain/filter';
+import type { MenuItem } from './ContextMenu';
 import { ICON_SCALE_STEP } from '../domain/preferences';
 import { FileIcon } from './FileIcon';
 import { FileFacts, FolderVisual } from './FileFacts';
@@ -56,7 +57,8 @@ interface Props {
   onInspect(id: string): void;
   onBrowse(): void;
   onOpen(id: string): void;
-  onContextMenu(id: string, x: number, y: number): void;
+  onContextMenu(id: string, x: number, y: number, extras?: MenuItem[]): void;
+  onBackgroundMenu(x: number, y: number, extras: MenuItem[]): void;
   filter: string;
   filterResult: FilterResult | null;
   filterRef: React.RefObject<HTMLInputElement | null>;
@@ -451,14 +453,15 @@ export function Canvas(props: Props) {
   }
   // Tidies this layer only. With a selection just those items are packed, starting from the
   // top-left of where they were; otherwise everything is. One undo step restores the old spots.
-  function arrange(mode: ArrangeMode) {
+  function arrange(mode: ArrangeMode, all = false) {
     const layer = layout.filter((r) => nodes[r.id].parentId === parentId);
-    const chosen = selected.length ? layer.filter((r) => selected.includes(r.id)) : layer;
+    const selectionOnly = !all && selected.length > 0;
+    const chosen = selectionOnly ? layer.filter((r) => selected.includes(r.id)) : layer;
     if (!chosen.length) {
       props.onNotice?.('没有可以排列的项目：请先选中画布上的卡片。');
       return;
     }
-    const origin = selected.length
+    const origin = selectionOnly
       ? { x: Math.min(...chosen.map((r) => r.x)), y: Math.min(...chosen.map((r) => r.y)) }
       : { x: 32, y: 32 };
     const positions = arrangeItems(
@@ -478,7 +481,7 @@ export function Canvas(props: Props) {
     raise(chosen.map((r) => r.id));
     props.onLayout(positions, mode === 'type' ? '按类型排列' : '排列整齐');
     props.onNotice?.(
-      `已${mode === 'type' ? '按类型排列' : '排列整齐'} ${chosen.length} 项${selected.length ? '（仅选中的）' : ''}，Ctrl+Z 可撤销。`,
+      `已${mode === 'type' ? '按类型排列' : '排列整齐'} ${chosen.length} 项${selectionOnly ? '（仅选中的）' : ''}，Ctrl+Z 可撤销。`,
     );
   }
   // Ctrl+A picks everything on this layer (or just the filter matches), the usual start of
@@ -488,7 +491,7 @@ export function Canvas(props: Props) {
       if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 'a') return;
       const target = event.target as HTMLElement | null;
       if (target?.closest('input, textarea, select, [contenteditable="true"]')) return;
-      if (document.querySelector('[role="dialog"], .modal-backdrop')) return;
+      if (document.querySelector('[role="dialog"], [role="menu"], .modal-backdrop')) return;
       event.preventDefault();
       if (props.filterResult?.matches.size) props.onSelectMatches();
       else onSelect(children(nodes, parentId).map((n) => n.id));
@@ -509,6 +512,53 @@ export function Canvas(props: Props) {
     } catch {
       return [];
     }
+  }
+  function backgroundItems(): MenuItem[] {
+    const folderIds = Object.values(nodes)
+      .filter(
+        (n) =>
+          n.kind === 'folder' &&
+          n.id !== parentId &&
+          (parentId === null || isDescendant(nodes, n.id, parentId)),
+      )
+      .slice(0, 100)
+      .map((n) => n.id);
+    return [
+      {
+        label: props.filterResult ? '选中匹配项' : '全选当前层',
+        icon: <MousePointer2 size={14} />,
+        shortcut: 'Ctrl+A',
+        disabled: props.filterResult ? !props.filterResult.matches.size : !layout.length,
+        onClick: () =>
+          props.filterResult
+            ? props.onSelectMatches()
+            : onSelect(children(nodes, parentId).map((n) => n.id)),
+      },
+      {
+        label: '排列当前层',
+        icon: <LayoutGrid size={14} />,
+        hint: '只调整卡片位置',
+        group: true,
+        disabled: !layout.length,
+        onClick: () => arrange('tidy', true),
+      },
+      { label: '按类型排列卡片', disabled: !layout.length, onClick: () => arrange('type', true) },
+      {
+        label: expanded.size ? '收起所有文件夹' : '展开文件夹',
+        disabled: !folderIds.length,
+        onClick: () => setExpanded(expanded.size ? new Set() : new Set(folderIds)),
+      },
+      { label: '添加文件', icon: <FolderOpen size={14} />, onClick: props.onBrowse },
+    ];
+  }
+  function folderMenu(id: string, isExpanded: boolean): MenuItem[] {
+    return [
+      {
+        label: isExpanded ? '收起文件夹' : '在画布中展开',
+        icon: isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />,
+        onClick: () => toggle(id),
+      },
+    ];
   }
   return (
     <>
@@ -564,53 +614,40 @@ export function Canvas(props: Props) {
             <LayoutGrid size={14} />
             {selected.length ? `排列所选 (${selected.length})` : '排列整齐'}
           </button>
-          <details
-            className="canvas-options"
+          <button
+            className="text-button canvas-options-button"
+            aria-haspopup="menu"
             onClick={(e) => {
-              if ((e.target as HTMLElement).closest('button')) e.currentTarget.open = false;
+              const box = e.currentTarget.getBoundingClientRect();
+              props.onBackgroundMenu(box.left, box.bottom + 4, backgroundItems());
             }}
           >
-            <summary>
-              画布选项 <ChevronDown size={13} />
-            </summary>
-            <div className="canvas-options-menu">
-              <button
-                className="text-button"
-                onClick={() =>
-                  setExpanded(
-                    new Set(
-                      Object.values(nodes)
-                        .filter((n) => n.kind === 'folder')
-                        .slice(0, 100)
-                        .map((n) => n.id),
-                    ),
-                  )
-                }
-              >
-                展开文件夹
-              </button>
-              <button className="text-button" onClick={() => setExpanded(new Set())}>
-                全部收起
-              </button>
-              <button className="text-button" onClick={props.onBrowse}>
-                <FolderOpen size={14} />
-                添加文件
-              </button>
-              <button
-                className="text-button"
-                title="文件夹在前，相同类型的文件各占一行，方便框选后一起移走"
-                onClick={() => arrange('type')}
-              >
-                按类型排列卡片
-              </button>
-            </div>
-          </details>
+            画布选项 <ChevronDown size={13} />
+          </button>
         </div>
       </div>
       <div
         ref={container}
         onScroll={measure}
         className={`canvas-scroll ${dragOver ? 'external-drag' : ''}`}
+        tabIndex={0}
+        onContextMenu={(e) => {
+          if ((e.target as HTMLElement).closest('[data-node-id], button, input')) return;
+          e.preventDefault();
+          e.stopPropagation();
+          props.onBackgroundMenu(e.clientX, e.clientY, backgroundItems());
+        }}
+        onKeyDown={(e) => {
+          if (
+            (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) &&
+            (e.target === e.currentTarget || e.target === surface.current)
+          ) {
+            e.preventDefault();
+            e.stopPropagation();
+            const box = e.currentTarget.getBoundingClientRect();
+            props.onBackgroundMenu(box.left + 24, box.top + 24, backgroundItems());
+          }
+        }}
         onDragOver={(e) => {
           if (
             e.dataTransfer.types.some((t) =>
@@ -766,19 +803,30 @@ export function Canvas(props: Props) {
                     if (!isFolder && !moved.current) props.onOpen(node.id);
                   }}
                   onContextMenu={(e) => {
-                    // Expanded folders only answer on their heading; cards anywhere.
-                    if (
-                      r.expanded &&
-                      !(e.target as HTMLElement).closest('.folder-container-heading')
-                    )
-                      return;
                     e.preventDefault();
                     e.stopPropagation();
                     if (!selected.includes(node.id)) onSelect([node.id]);
-                    props.onContextMenu(node.id, e.clientX, e.clientY);
+                    props.onContextMenu(
+                      node.id,
+                      e.clientX,
+                      e.clientY,
+                      isFolder ? folderMenu(node.id, r.expanded) : [],
+                    );
                   }}
                   onKeyDown={(e) => {
                     if (e.target !== e.currentTarget) return;
+                    if (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      const box = e.currentTarget.getBoundingClientRect();
+                      props.onContextMenu(
+                        node.id,
+                        box.left + 24,
+                        box.top + 24,
+                        isFolder ? folderMenu(node.id, r.expanded) : [],
+                      );
+                      return;
+                    }
                     if (e.key === 'Enter') {
                       e.stopPropagation();
                       isFolder ? toggle(node.id) : props.onInspect(node.id);

@@ -4,7 +4,6 @@ import {
   ArrowUp,
   ChevronDown,
   ChevronRight,
-  ChevronsDownUp,
   ChevronsUpDown,
   FolderOpen,
   FolderPlus,
@@ -19,20 +18,14 @@ import type { CanvasNode, NodeMap } from '../domain/types';
 import type { FilterResult } from '../domain/filter';
 import type { GroupBy, SortDir, SortKey, ViewMode } from '../domain/preferences';
 import { GROUP_BYS, ICON_SCALE_STEP, SORT_KEYS } from '../domain/preferences';
-import {
-  formatModified,
-  groupNodes,
-  listRows,
-  pendingLabel,
-  sortNodes,
-  typeLabel,
-} from '../domain/listing';
+import { formatModified, groupNodes, listRows, pendingLabel, sortNodes } from '../domain/listing';
 import { children, isDescendant, topLevelSelection } from '../domain/workspace';
 import { CardVisual } from './ExpandedCanvas';
 import { FileIcon, formatSize } from './FileIcon';
 import { FileFacts, FolderVisual } from './FileFacts';
 import { fileInfo, summarizeFolders, folderDescription, folderSize } from '../domain/file-info';
 import type { FolderSummary } from '../domain/file-info';
+import type { MenuItem } from './ContextMenu';
 
 const SORT_LABEL: Record<SortKey, string> = {
   name: '名称',
@@ -166,7 +159,8 @@ interface Props {
   onEnter(id: string | null): void;
   onInspect(id: string): void;
   onOpen(id: string): void;
-  onContextMenu(id: string, x: number, y: number): void;
+  onContextMenu(id: string, x: number, y: number, extras?: MenuItem[]): void;
+  onBackgroundMenu(x: number, y: number, extras: MenuItem[]): void;
   onMove(ids: string[], parentId: string | null): void;
   onImport(paths: string[], parentId: string | null): Promise<void>;
   onBrowse(): void;
@@ -340,7 +334,7 @@ export function ListingView(props: Props) {
         e.preventDefault();
         e.stopPropagation();
         if (!selected.includes(node.id)) props.onSelect([node.id]);
-        props.onContextMenu(node.id, e.clientX, e.clientY);
+        nodeMenu(node, e.clientX, e.clientY);
       },
       onDragStart: (e: React.DragEvent) => {
         const base = selected.includes(node.id) ? selected : [node.id];
@@ -363,6 +357,13 @@ export function ListingView(props: Props) {
     const id = current.dataset.id!,
       node = nodes[id],
       index = ids.indexOf(id);
+    if (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) {
+      e.preventDefault();
+      e.stopPropagation();
+      const box = current.getBoundingClientRect();
+      nodeMenu(node, box.left + 24, box.top + 24);
+      return;
+    }
     const columns =
       mode === 'list'
         ? 1
@@ -446,6 +447,52 @@ export function ListingView(props: Props) {
     .map((n) => n.id);
   const ModeIcon = VIEW_ICON[mode];
   const empty = !level.length;
+  function toggleFolder(id: string) {
+    setOpen((old) => {
+      const next = new Set(old);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }
+  function nodeMenu(node: CanvasNode, x: number, y: number) {
+    props.onContextMenu(
+      node.id,
+      x,
+      y,
+      mode === 'list' && node.kind === 'folder'
+        ? [
+            {
+              label: open.has(node.id) ? '收起文件夹' : '在列表中展开',
+              icon: <ChevronsUpDown size={14} />,
+              onClick: () => toggleFolder(node.id),
+            },
+          ]
+        : [],
+    );
+  }
+  function backgroundItems(): MenuItem[] {
+    return [
+      {
+        label: props.filterResult ? '选中匹配项' : '全选当前层',
+        shortcut: 'Ctrl+A',
+        disabled: props.filterResult ? !props.filterResult.matches.size : empty,
+        onClick: () =>
+          props.filterResult ? props.onSelectMatches() : props.onSelect(level.map((n) => n.id)),
+      },
+      ...(mode === 'list'
+        ? [
+            {
+              label: open.size ? '收起所有文件夹' : '展开文件夹',
+              icon: <ChevronsUpDown size={14} />,
+              group: true,
+              disabled: !folderIds.length,
+              onClick: () => setOpen(open.size ? new Set() : new Set(folderIds)),
+            },
+          ]
+        : []),
+      { label: '添加文件', icon: <FolderOpen size={14} />, onClick: props.onBrowse },
+    ];
+  }
 
   return (
     <>
@@ -535,27 +582,28 @@ export function ListingView(props: Props) {
               </button>
             </>
           )}
-          {mode === 'list' && (
-            <>
-              <button className="text-button" onClick={() => setOpen(new Set(folderIds))}>
-                <ChevronsUpDown size={14} />
-                展开文件夹
-              </button>
-              <button className="text-button" onClick={() => setOpen(new Set())}>
-                <ChevronsDownUp size={14} />
-                全部收起
-              </button>
-            </>
-          )}
-          <button className="text-button" onClick={props.onBrowse}>
-            <FolderOpen size={14} />
-            添加文件
+          <button
+            className="text-button"
+            aria-haspopup="menu"
+            onClick={(e) => {
+              const box = e.currentTarget.getBoundingClientRect();
+              props.onBackgroundMenu(box.left, box.bottom + 4, backgroundItems());
+            }}
+          >
+            视图选项 <ChevronDown size={13} />
           </button>
         </div>
       </div>
       <div
         ref={scroller}
         className={`canvas-scroll listing-scroll ${hover === null ? 'external-drag' : ''}`}
+        tabIndex={0}
+        onContextMenu={(e) => {
+          if ((e.target as HTMLElement).closest('[data-id], button, input, select')) return;
+          e.preventDefault();
+          e.stopPropagation();
+          props.onBackgroundMenu(e.clientX, e.clientY, backgroundItems());
+        }}
         onClick={(e) => {
           if (!(e.target as HTMLElement).closest('[data-id], button, select, label'))
             props.onSelect([]);
@@ -565,7 +613,17 @@ export function ListingView(props: Props) {
           if (!e.currentTarget.contains(e.relatedTarget as Node)) setHover(undefined);
         }}
         onDrop={(e) => drop(e, parentId)}
-        onKeyDown={keyboard}
+        onKeyDown={(e) => {
+          if (
+            e.target === e.currentTarget &&
+            (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10'))
+          ) {
+            e.preventDefault();
+            e.stopPropagation();
+            const box = e.currentTarget.getBoundingClientRect();
+            props.onBackgroundMenu(box.left + 24, box.top + 24, backgroundItems());
+          } else keyboard(e);
+        }}
       >
         {empty ? (
           <div className="canvas-empty listing-empty">

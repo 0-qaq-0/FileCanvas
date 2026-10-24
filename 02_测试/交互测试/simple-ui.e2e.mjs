@@ -84,7 +84,7 @@ try {
       true,
     );
   const shot = async (name) => {
-    await clearToast();
+    if (!(await page.getByRole('menu').count())) await clearToast();
     await page.screenshot({ path: path.join(shots, name), animations: 'disabled' });
   };
 
@@ -111,9 +111,151 @@ try {
   await shot('02-简洁画布.png');
   pass('欢迎页只突出开始入口；主界面收起低频工具；文件夹嵌套统计与文件大小可见');
 
+  const fileMenu = () => page.getByRole('menu', { name: '文件操作', exact: true });
+  const backgroundMenu = () => page.getByRole('menu', { name: '画布操作', exact: true });
+  const blankMenu = async () => {
+    await clearToast();
+    const surface = page.locator('.canvas-scroll');
+    const box = await surface.boundingBox();
+    await surface.click({ button: 'right', position: { x: box.width - 22, y: box.height - 24 } });
+    await expect(backgroundMenu()).toBeVisible();
+  };
+  await expect(
+    page.locator('.main-header').getByRole('button', { name: '新建文件夹' }),
+  ).toHaveCount(0);
+  await card('需求说明.txt').click({ button: 'right' });
+  await expect(fileMenu().locator('.context-menu-title')).toHaveText('需求说明.txt');
+  await expect(fileMenu().getByRole('menuitem', { name: '预览详情', exact: true })).toBeVisible();
+  await expect(fileMenu().getByRole('menuitem', { name: '新建子文件夹' })).toHaveCount(0);
+  await shot('10-文件右键.png');
+  await fileMenu().getByRole('menuitem', { name: '重命名', exact: true }).click();
+  await page.getByLabel('名称', { exact: true }).fill('需求说明-修改.txt');
+  await page.getByRole('button', { name: '确认重命名', exact: true }).click();
+  await expect(card('需求说明-修改.txt')).toHaveCount(1);
+  expect(await fingerprint()).toEqual(before);
+  await page.keyboard.press('Control+z');
+  await expect(card('需求说明.txt')).toHaveCount(1);
+
+  await card('参考资料').click({ button: 'right' });
+  await fileMenu().getByRole('menuitem', { name: '新建子文件夹', exact: true }).click();
+  await expect(page.getByRole('dialog')).toContainText('将在“参考资料”中新建');
+  await page.getByLabel('名称', { exact: true }).fill('右键新建');
+  await page.getByRole('button', { name: '创建', exact: true }).click();
+  await expect(card('参考资料').locator('.file-facts')).toContainText('2 个文件夹');
+  await page.keyboard.press('Control+z');
+  await expect(card('参考资料').locator('.file-facts')).toContainText('1 个文件夹');
+  await card('参考资料').click({ button: 'right' });
+  await fileMenu().getByRole('menuitem', { name: '在画布中展开', exact: true }).click();
+  await expect(card('参考资料')).toHaveAttribute('data-expanded', 'true');
+  await card('说明.md').click({ button: 'right' });
+  await expect(fileMenu().locator('.context-menu-title')).toHaveText('说明.md');
+  await fileMenu().getByRole('menuitem', { name: '预览详情', exact: true }).click();
+  await expect(page.locator('.file-inspector .content-heading')).toContainText('说明.md');
+  await page.getByRole('button', { name: '收起内容预览' }).click();
+  await card('参考资料').locator('.folder-container-heading').click({ button: 'right' });
+  await fileMenu().getByRole('menuitem', { name: '收起文件夹', exact: true }).click();
+  await expect(card('参考资料')).toHaveAttribute('data-expanded', 'false');
+  pass('文件右键可改名和撤销；文件夹内新建位置正确；嵌套文件右键不会被父文件夹菜单覆盖');
+
+  await card('需求说明.txt').click();
+  await card('合作方案.pdf').click({ modifiers: ['Control'] });
+  await card('需求说明.txt').click({ button: 'right' });
+  await expect(fileMenu().locator('.context-menu-title')).toHaveText('已选择 2 项');
+  await expect(fileMenu().getByRole('menuitem', { name: '批量重命名', exact: true })).toBeVisible();
+  await expect(fileMenu().getByRole('menuitem', { name: '预览详情', exact: true })).toHaveCount(0);
+  await shot('11-多选右键.png');
+  await fileMenu().getByRole('menuitem', { name: '移入新文件夹', exact: true }).click();
+  await page.getByLabel('名称', { exact: true }).fill('多选归类');
+  await page.getByRole('button', { name: '创建并移入', exact: true }).click();
+  await expect(card('多选归类').locator('.folder-container-heading')).toContainText('2 个文件');
+  expect(await fingerprint()).toEqual(before);
+  await page.keyboard.press('Control+z');
+  await expect(card('需求说明.txt')).toHaveCount(1);
+  await card('需求说明.txt').click();
+  await card('合作方案.pdf').click({ modifiers: ['Control'] });
+  await card('交付素材.zip').click({ button: 'right' });
+  await expect(fileMenu().locator('.context-menu-title')).toHaveText('交付素材.zip');
+  await expect(fileMenu().getByRole('menuitem', { name: '批量重命名', exact: true })).toHaveCount(
+    0,
+  );
+  await expect(fileMenu().getByRole('menuitem', { name: '移出画布', exact: true })).toContainText(
+    '不删除本地文件',
+  );
+  await fileMenu().getByRole('menuitem', { name: '移出画布', exact: true }).click();
+  await expect(card('交付素材.zip')).toHaveCount(0);
+  expect(await fingerprint()).toEqual(before);
+  await page.keyboard.press('Control+z');
+  await expect(card('交付素材.zip')).toHaveCount(1);
+  pass(
+    '右键已选文件保留多选，归类只作用于选中两项；右键未选文件切换到单项；移出画布不删除本地文件',
+  );
+
+  await blankMenu();
+  await expect(
+    backgroundMenu().getByRole('menuitem', { name: '新建文件夹', exact: true }),
+  ).toBeVisible();
+  await expect(backgroundMenu().getByRole('menuitem', { name: '重命名', exact: true })).toHaveCount(
+    0,
+  );
+  await expect(
+    backgroundMenu().getByRole('menuitem', { name: '撤销未应用的修改', exact: true }),
+  ).toBeEnabled();
+  const menuBox = await backgroundMenu().boundingBox();
+  expect(menuBox.x).toBeGreaterThanOrEqual(0);
+  expect(menuBox.y).toBeGreaterThanOrEqual(0);
+  expect(menuBox.x + menuBox.width).toBeLessThanOrEqual(1280);
+  expect(menuBox.y + menuBox.height).toBeLessThanOrEqual(800);
+  await shot('12-空白处右键.png');
+  await page.keyboard.press('End');
+  await expect(
+    backgroundMenu().getByRole('menuitem', { name: '刷新并核对', exact: true }),
+  ).toBeFocused();
+  await page.keyboard.press('ArrowUp');
+  await expect(backgroundMenu().getByRole('menuitem', { name: '重做', exact: true })).toBeFocused();
+  await page.keyboard.press('Home');
+  await expect(
+    backgroundMenu().getByRole('menuitem', { name: '新建文件夹', exact: true }),
+  ).toBeFocused();
+  await page.keyboard.press('Enter');
+  await page.getByLabel('名称', { exact: true }).fill('空白处新建');
+  await page.getByRole('button', { name: '创建', exact: true }).click();
+  await expect(card('空白处新建')).toHaveCount(1);
+  await page.keyboard.press('Control+z');
+  await expect(card('空白处新建')).toHaveCount(0);
+  await blankMenu();
+  await backgroundMenu().getByRole('menuitem', { name: '全选当前层', exact: true }).click();
+  await expect(page.locator('.selection-toolbar')).toContainText('已选择 10 项');
+  await expect(page.locator('.selection-toolbar').getByRole('button')).toHaveCount(2);
+  await page.keyboard.press('Escape');
+  await card('空文件夹').click({ button: 'right' });
+  await fileMenu().getByRole('menuitem', { name: '打开文件夹', exact: true }).click();
+  await expect(page.locator('.breadcrumb')).toContainText('空文件夹');
+  await blankMenu();
+  await expect(
+    backgroundMenu().getByRole('menuitem', { name: '全选当前层', exact: true }),
+  ).toBeDisabled();
+  await expect(
+    backgroundMenu().getByRole('menuitem', { name: '排列当前层', exact: true }),
+  ).toBeDisabled();
+  await page.keyboard.press('Home');
+  await page.keyboard.press('ArrowDown');
+  await expect(
+    backgroundMenu().getByRole('menuitem', { name: '添加文件', exact: true }),
+  ).toBeFocused();
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: '返回上一级', exact: true }).click();
+  await card('需求说明.txt').focus();
+  await page.keyboard.press('Shift+F10');
+  await expect(fileMenu().locator('.context-menu-title')).toHaveText('需求说明.txt');
+  await page.keyboard.press('Escape');
+  pass(
+    '空白菜单可新建和全选；菜单在窗口边缘完整可见；键盘打开、跳转和禁用项处理正常；浮动栏只留操作与取消',
+  );
+
   await card('需求说明.txt').click();
   await expect(page.locator('.file-inspector')).toHaveCount(0);
-  await page.locator('.selection-toolbar').getByRole('button', { name: '预览详情' }).click();
+  await page.getByRole('button', { name: '所选文件操作', exact: true }).click();
+  await fileMenu().getByRole('menuitem', { name: '预览详情', exact: true }).click();
   await expect(page.locator('.file-inspector .content-heading')).toContainText('文档 · TXT');
   await expect(page.locator('.text-preview')).toContainText('项目资料');
   await expect(page.locator('.inspector-ai')).not.toHaveAttribute('open');
@@ -141,16 +283,23 @@ try {
   await expect(card('空文件夹').locator('.file-facts')).toContainText('0 个文件');
   await expect(page.locator('.statusbar')).toContainText('0 项待变更');
   await page.keyboard.press('Escape');
-  await expect(page.getByRole('button', { name: '全部收起', exact: true })).toBeHidden();
-  await page.locator('.canvas-options > summary').click();
-  await page.getByRole('button', { name: '按类型排列卡片', exact: true }).click();
-  await expect(page.locator('.canvas-options')).not.toHaveAttribute('open');
+  await page.getByRole('button', { name: '画布选项', exact: true }).click();
+  await backgroundMenu().getByRole('menuitem', { name: '按类型排列卡片', exact: true }).click();
+  await expect(backgroundMenu()).toHaveCount(0);
   expect(await fingerprint()).toEqual(before);
   pass(
     '单击只选择，主动预览后显示内容；AI 默认收起；菜单可用 Esc/点击外部关闭；画布拖入文件夹及撤销正常，排列不改变真实文件',
   );
 
   await page.getByRole('button', { name: '列表视图' }).click();
+  await item('合作方案.pdf').click({ button: 'right' });
+  await expect(fileMenu().locator('.context-menu-title')).toHaveText('合作方案.pdf');
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: '视图选项', exact: true }).click();
+  await expect(
+    backgroundMenu().getByRole('menuitem', { name: '新建文件夹', exact: true }),
+  ).toBeVisible();
+  await page.keyboard.press('Escape');
   await expect(item('合作方案.pdf').locator('.col-size')).toHaveText('48.0 KB');
   await expect(item('参考资料').locator('.col-size')).not.toHaveText('0 B');
   await item('需求说明.txt').dragTo(item('空文件夹'));
@@ -176,6 +325,12 @@ try {
   await settings.getByRole('button', { name: '完成', exact: true }).click();
   await page.setViewportSize({ width: 1000, height: 680 });
   await noOverflow();
+  await blankMenu();
+  const compactMenu = await backgroundMenu().boundingBox();
+  expect(compactMenu.x + compactMenu.width).toBeLessThanOrEqual(1000);
+  expect(compactMenu.y + compactMenu.height).toBeLessThanOrEqual(680);
+  await shot('13-小窗口右键.png');
+  await page.keyboard.press('Escape');
   await shot('05-小窗口.png');
   await page.setViewportSize({ width: 1280, height: 800 });
   pass('设置内仍可使用平铺和分组；切回画布保留操作；1000×680 页面无横向溢出');
