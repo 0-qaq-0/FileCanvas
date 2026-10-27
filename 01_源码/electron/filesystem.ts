@@ -62,15 +62,28 @@ export async function readEntry(root: string, fullPath: string): Promise<SourceE
     mtimeMs: stat.mtimeMs,
   };
 }
-// Files Windows or other programs keep for themselves: moving them breaks folder settings or a
-// download in progress, so they are listed as unavailable and never imported.
-export function systemOrPartial(name: string): string | null {
+// Files Windows or other programs keep for themselves, listed as unavailable and never imported.
+// Windows' own per-folder files ('system') travel with a moved folder; an Office lock file or a
+// download in progress ('busy') keeps its folder from moving until the program is done with it.
+export function skippedKind(name: string): 'system' | 'office' | 'download' | null {
   const lower = name.toLowerCase();
-  if (['desktop.ini', 'thumbs.db', 'ehthumbs.db'].includes(lower)) return '系统文件，不参与整理。';
-  if (lower.startsWith('~$')) return 'Office 正在使用的临时文件，不参与整理。';
-  if (/\.(crdownload|part|download|opdownload)$/.test(lower))
-    return '正在下载的文件，下载完成后再整理。';
+  if (['desktop.ini', 'thumbs.db', 'ehthumbs.db'].includes(lower)) return 'system';
+  if (lower.startsWith('~$')) return 'office';
+  if (/\.(crdownload|part|download|opdownload)$/.test(lower)) return 'download';
   return null;
+}
+export function systemOrPartial(name: string): string | null {
+  const kind = skippedKind(name);
+  if (kind === 'system') return '系统文件，不参与整理。';
+  if (kind === 'office') return 'Office 正在使用的临时文件，不参与整理。';
+  if (kind === 'download') return '正在下载的文件，下载完成后再整理。';
+  return null;
+}
+// Why a folder holding this skipped file cannot be moved yet, naming the file.
+function blocksFolderMove(name: string, kind: 'office' | 'download'): string {
+  return kind === 'office'
+    ? `文件夹里的“${name}”是 Office 正在使用的临时文件，请先关闭对应文档再移动这个文件夹。`
+    : `文件夹里的“${name}”还在下载，请等下载完成后再移动这个文件夹。`;
 }
 export async function listDirectory(root: string, directory: string): Promise<SourceEntry[]> {
   const resolved = checkPath(root, directory);
@@ -266,6 +279,14 @@ export async function generatePreview(root: string, project: Project): Promise<P
       .filter((n) => n.source)
       .map((n) => n.source!.path.toLowerCase()),
   );
+  // Folders are emptied file by file and then removed, so a system file left behind would stop
+  // the removal: each one moves next to its folder's new place, as part of the plan.
+  const folderTargets = new Map(
+    changes
+      .filter((c) => c.source && project.nodes[c.id].kind === 'folder')
+      .map((c) => [c.source!.toLowerCase(), c.target]),
+  );
+  const companions = new Map<string, { source: string; target: string }>();
   for (const folder of movedFolders) {
     try {
       const queue = [folder.source!];
@@ -274,6 +295,17 @@ export async function generatePreview(root: string, project: Project): Promise<P
         const directory = queue.pop()!;
         for (const child of await listDirectory(root, directory)) {
           if (++visited > MAX_NODES) throw new Error('文件夹超过 5000 项，请缩小范围。');
+          const skipped = skippedKind(child.name);
+          const parentTarget = folderTargets.get(directory.toLowerCase());
+          if (skipped === 'system' && parentTarget && (await fs.lstat(child.path)).isFile()) {
+            companions.set(child.path.toLowerCase(), {
+              source: child.path,
+              target: path.join(parentTarget, child.name),
+            });
+            continue;
+          }
+          if (skipped === 'office' || skipped === 'download')
+            throw new Error(blocksFolderMove(path.relative(folder.source!, child.path), skipped));
           if (child.blocked || !sources.has(child.path.toLowerCase()))
             throw new Error('文件夹含未加入画布或不可读取的条目，请刷新并完整加入后再移动。');
           if (child.kind === 'folder') queue.push(child.path);
@@ -292,6 +324,7 @@ export async function generatePreview(root: string, project: Project): Promise<P
   }
   return {
     changes,
+    companions: [...companions.values()],
     changed: changes.filter((c) => c.kind !== 'unchanged').length,
     unchanged: changes.filter((c) => c.kind === 'unchanged').length,
     issues: changes.filter((c) => c.issues.length).length,

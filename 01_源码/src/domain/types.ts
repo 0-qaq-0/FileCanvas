@@ -73,6 +73,8 @@ export interface Preview {
   planId?: string;
   preserved?: number;
   changes: Change[];
+  // System files (desktop.ini, Thumbs.db) not on the canvas that move along with their folder.
+  companions?: { source: string; target: string }[];
   changed: number;
   unchanged: number;
   issues: number;

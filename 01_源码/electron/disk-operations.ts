@@ -95,9 +95,13 @@ function scopeOf(
   return [...scope];
 }
 function planParts(root: string, project: Project, preview: Preview) {
-  const files = preview.changes.filter(
-    (c) => c.source && project.nodes[c.id].kind === 'file' && c.kind !== 'unchanged',
-  );
+  // Canvas files that change place, plus the system files travelling with a moved folder.
+  const files = [
+    ...preview.changes
+      .filter((c) => c.source && project.nodes[c.id].kind === 'file' && c.kind !== 'unchanged')
+      .map((c) => ({ source: c.source!, target: c.target })),
+    ...(preview.companions ?? []),
+  ];
   const removedDirectories = preview.changes
     .filter((c) => c.source && project.nodes[c.id].kind === 'folder' && c.kind !== 'unchanged')
     .map((c) => c.source!);
@@ -367,21 +371,23 @@ export class DiskOperations {
     }
     const { files, removedDirectories, desiredDirs } = planParts(root, project, preview);
     const scope = scopeOf(root, {
-      moves: files.map((c) => ({ source: c.source!, target: c.target })),
+      moves: files,
       created: [...desiredDirs],
       removed: removedDirectories,
     });
     const listed = new Map<string, string[]>();
     const baseline = await scopedInventory(root, scope, listed);
     const hashes: Record<string, string> = {};
-    for (const c of files) hashes[c.source!] = await hashFile(c.source!);
+    for (const c of files) hashes[c.source] = await hashFile(c.source);
     const id = randomUUID();
     this.prepared = { id, projectDigest: digest(project), scope, baseline, hashes };
-    const known = new Set(
-      Object.values(project.nodes)
+    // Travelling system files move too, so they are not counted as left in place.
+    const known = new Set([
+      ...Object.values(project.nodes)
         .filter((n) => n.source)
         .map((n) => lower(n.source!.path)),
-    );
+      ...files.map((c) => lower(c.source)),
+    ]);
     let preserved = 0;
     for (const [directory, names] of listed)
       for (const name of names)
@@ -629,6 +635,9 @@ export class DiskOperations {
         staging = path.join(root, `.filecanvas-operation-${id}`);
       if (await statOrNull(staging)) throw new Error('恢复区已存在，请重新预览。');
       const { files, removedDirectories, desiredDirs } = planParts(root, project, preview);
+      // A system file that appeared after the preview was never fingerprinted or hashed.
+      if (files.some((c) => !prepared.baseline[c.source] || !prepared.hashes[c.source]))
+        throw new Error('文件在预览后发生变化，请刷新核对并重新预览。');
       const createdDirectories = [...desiredDirs].filter(
         (d) => !prepared.baseline[d] || removedDirectories.includes(d),
       );
@@ -642,13 +651,13 @@ export class DiskOperations {
         acknowledged: false,
         status: 'prepared',
         moves: files.map((c, i) => ({
-          source: c.source!,
+          source: c.source,
           target: c.target,
           stage: path.join(staging, `${i}`),
-          sha256: prepared.hashes[c.source!],
-          identity: prepared.baseline[c.source!].identity,
-          size: prepared.baseline[c.source!].size,
-          modified: prepared.baseline[c.source!].modified,
+          sha256: prepared.hashes[c.source],
+          identity: prepared.baseline[c.source].identity,
+          size: prepared.baseline[c.source].size,
+          modified: prepared.baseline[c.source].modified,
         })),
         baseline: prepared.baseline,
         removedDirectories,
