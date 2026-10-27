@@ -141,6 +141,16 @@ export function redo(state: Workspace): Workspace {
     future: state.future.slice(0, -1),
   };
 }
+/** True while the canvas plan differs from the disk: a new folder, or an item placed elsewhere. */
+export function hasPendingPlan(project: Project): boolean {
+  const root = project.rootPath.replace(/[\\/]+$/, '');
+  return Object.values(project.nodes).some(
+    (node) =>
+      !node.source ||
+      `${root}\\${relativeTarget(project.nodes, node.id).join('\\')}`.toLowerCase() !==
+        node.source.path.toLowerCase(),
+  );
+}
 export function children(nodes: NodeMap, parentId: string | null): CanvasNode[] {
   return Object.values(nodes).filter((n) => n.parentId === parentId);
 }

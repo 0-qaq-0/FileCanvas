@@ -22,9 +22,9 @@ import { ProjectStorage } from './storage';
 import { RulesStorage } from './rules-storage';
 import { PreferencesStorage } from './preferences-storage';
 import { createSampleFolder } from './demo-samples';
-import { importEntries, setGridColumns, workspace } from '../src/domain/workspace';
+import { hasPendingPlan, importEntries, setGridColumns, workspace } from '../src/domain/workspace';
 import { markdownPlan } from '../src/domain/plan-report';
-import type { Project } from '../src/domain/types';
+import type { KnownFolder, Project } from '../src/domain/types';
 import { AiService } from './ai';
 import { readContent } from './content';
 import { DiskOperations } from './disk-operations';
@@ -168,6 +168,116 @@ app.whenReady().then(async () => {
   mainWindow.webContents.session.setPermissionRequestHandler((_contents, _permission, callback) =>
     callback(false),
   );
+  // Every way of choosing a root (dialog, common place, dropped folder) goes through the same checks.
+  // With `reuse`, a folder whose newest saved project still has an unapplied plan opens that
+  // project again, so one click on 整理下载 never hides earlier work; otherwise it starts fresh
+  // and picks up whatever is in the folder now.
+  async function openChosenRoot(chosen: string, reuse = false): Promise<Project> {
+    if (fileOperation) throw new Error('文件整理进行中，请完成后再切换目录。');
+    if (reuse) {
+      const canonical = (await fs.realpath(chosen)).toLowerCase();
+      const newest = (await storage.list()).find((r) => r.rootPath.toLowerCase() === canonical);
+      if (newest) {
+        const saved = await storage.load(newest.id);
+        if (hasPendingPlan(saved)) return activate(saved);
+      }
+    }
+    if (chosen.startsWith('\\\\') || (await fs.lstat(chosen)).isSymbolicLink())
+      throw new Error('暂不支持网络路径、符号链接或目录联接。');
+    const canonical = await fs.realpath(chosen);
+    if (inside(canonical, app.getPath('userData')))
+      throw new Error(
+        '请选择更具体的文件夹（如“下载”）。整理根目录不能包含 FileCanvas 自身的数据目录。',
+      );
+    if (!(await fs.stat(canonical)).isDirectory()) throw new Error('请选择文件夹。');
+    await fs.readdir(canonical);
+    const project = createProject(canonical);
+    await storage.save(project);
+    return activate(project);
+  }
+  // Places offered on the welcome page and in the 打开 menu. Chat apps' storage (WeChat, QQ) is
+  // left out on purpose: moving files there breaks the links inside the chat history.
+  async function knownFolders(): Promise<KnownFolder[]> {
+    let base: string | null = null;
+    if (e2e && process.env.FILECANVAS_TEST_KNOWN) {
+      base = path.resolve(process.env.FILECANVAS_TEST_KNOWN);
+      if (!base.startsWith(path.join(os.tmpdir(), 'filecanvas-e2e-')))
+        throw new Error('测试位置目录不合法。');
+    }
+    const places: KnownFolder[] = [
+      {
+        id: 'downloads',
+        label: '下载',
+        path: base ? path.join(base, '下载') : app.getPath('downloads'),
+      },
+      {
+        id: 'desktop',
+        label: '桌面',
+        path: base ? path.join(base, '桌面') : app.getPath('desktop'),
+      },
+    ];
+    const found: KnownFolder[] = [];
+    for (const place of places)
+      try {
+        if ((await fs.stat(place.path)).isDirectory()) found.push(place);
+      } catch {}
+    return found;
+  }
+  handle('fc:known-folders', () => knownFolders());
+  handle('fc:open-known', async (id: unknown) => {
+    const place = (await knownFolders()).find((p) => p.id === id);
+    if (!place) throw new Error('没有找到这个位置，请用“选择文件夹”打开。');
+    return openChosenRoot(place.path, true);
+  });
+  // The path comes from the preload, which only converts a File the user actually dropped.
+  handle('fc:open-dropped', async (chosen: unknown) => {
+    if (typeof chosen !== 'string' || !chosen || !path.isAbsolute(chosen))
+      throw new Error('没有读到文件夹位置，请从资源管理器拖入一个文件夹。');
+    if (!(await fs.stat(chosen)).isDirectory()) throw new Error('请拖入文件夹，而不是单个文件。');
+    return openChosenRoot(chosen, true);
+  });
+  // Saves the visible before/after card as a PNG: the page passes the card's box, nothing else.
+  handle('fc:save-image', async (rect: unknown) => {
+    const box = rect as { x: number; y: number; width: number; height: number } | null;
+    const [width, height] = mainWindow.getContentSize();
+    if (
+      !box ||
+      ![box.x, box.y, box.width, box.height].every(Number.isFinite) ||
+      box.width < 10 ||
+      box.height < 10 ||
+      box.x < 0 ||
+      box.y < 0 ||
+      box.x + box.width > width + 1 ||
+      box.y + box.height > height + 1
+    )
+      throw new Error('对比图不在窗口可见范围内，请放大窗口后重试。');
+    const image = await mainWindow.webContents.capturePage({
+      x: Math.floor(box.x),
+      y: Math.floor(box.y),
+      width: Math.ceil(box.width),
+      height: Math.ceil(box.height),
+    });
+    const stamp = new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '');
+    const name = `FileCanvas-整理前后对比-${stamp}.png`;
+    let target: string;
+    if (e2e) {
+      const directory = path.join(app.getPath('userData'), 'exports');
+      await fs.mkdir(directory, { recursive: true });
+      target = path.join(directory, name);
+    } else {
+      const result = await dialog.showSaveDialog(mainWindow, {
+        title: '保存整理前后对比图',
+        defaultPath: path.join(app.getPath('pictures'), name),
+        filters: [{ name: 'PNG 图片', extensions: ['png'] }],
+      });
+      if (result.canceled || !result.filePath) return null;
+      target = result.filePath;
+    }
+    await fs.writeFile(target, image.toPNG());
+    lastExport = await fs.realpath(target);
+    lastExportDirectory = path.dirname(lastExport);
+    return lastExport;
+  });
   handle('fc:open-root', async () => {
     if (fileOperation) throw new Error('文件整理进行中，请完成后再切换目录。');
     let chosen: string | undefined;
@@ -182,19 +292,7 @@ app.whenReady().then(async () => {
       });
       chosen = result.canceled ? undefined : result.filePaths[0];
     }
-    if (!chosen) return null;
-    if (chosen.startsWith('\\\\') || (await fs.lstat(chosen)).isSymbolicLink())
-      throw new Error('暂不支持网络路径、符号链接或目录联接。');
-    const canonical = await fs.realpath(chosen);
-    if (inside(canonical, app.getPath('userData')))
-      throw new Error(
-        '请选择更具体的文件夹（如“下载”）。整理根目录不能包含 FileCanvas 自身的数据目录。',
-      );
-    if (!(await fs.stat(canonical)).isDirectory()) throw new Error('请选择文件夹。');
-    await fs.readdir(canonical);
-    const project = createProject(canonical);
-    await storage.save(project);
-    return activate(project);
+    return chosen ? openChosenRoot(chosen) : null;
   });
   handle('fc:list', (directory) => listDirectory(root(), directory));
   handle('fc:content', (filename) => readContent(root(), filename));

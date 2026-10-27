@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron';
+import { contextBridge, ipcRenderer, webUtils } from 'electron';
 import type { FileCanvasApi } from '../src/domain/types';
 const api: FileCanvasApi = {
   applyChanges: (project, planId) => ipcRenderer.invoke('fc:apply', project, planId),
@@ -30,6 +30,11 @@ const api: FileCanvasApi = {
   askAi: (project, ids, question, organize, context, history) =>
     ipcRenderer.invoke('fc:ai-ask', project, ids, question, organize, context, history),
   openRoot: () => ipcRenderer.invoke('fc:open-root'),
+  knownFolders: () => ipcRenderer.invoke('fc:known-folders'),
+  openKnown: (id) => ipcRenderer.invoke('fc:open-known', id),
+  // Only a File the user really dropped has a path; the page itself never handles the path.
+  openDropped: (file) => ipcRenderer.invoke('fc:open-dropped', webUtils.getPathForFile(file)),
+  saveImage: (rect) => ipcRenderer.invoke('fc:save-image', rect),
   listDirectory: (path) => ipcRenderer.invoke('fc:list', path),
   search: (query) => ipcRenderer.invoke('fc:search', query),
   importPaths: (paths) => ipcRenderer.invoke('fc:import', paths),

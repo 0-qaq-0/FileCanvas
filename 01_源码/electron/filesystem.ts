@@ -62,6 +62,16 @@ export async function readEntry(root: string, fullPath: string): Promise<SourceE
     mtimeMs: stat.mtimeMs,
   };
 }
+// Files Windows or other programs keep for themselves: moving them breaks folder settings or a
+// download in progress, so they are listed as unavailable and never imported.
+export function systemOrPartial(name: string): string | null {
+  const lower = name.toLowerCase();
+  if (['desktop.ini', 'thumbs.db', 'ehthumbs.db'].includes(lower)) return '系统文件，不参与整理。';
+  if (lower.startsWith('~$')) return 'Office 正在使用的临时文件，不参与整理。';
+  if (/\.(crdownload|part|download|opdownload)$/.test(lower))
+    return '正在下载的文件，下载完成后再整理。';
+  return null;
+}
 export async function listDirectory(root: string, directory: string): Promise<SourceEntry[]> {
   const resolved = checkPath(root, directory);
   await noLinks(root, resolved);
@@ -72,6 +82,8 @@ export async function listDirectory(root: string, directory: string): Promise<So
   for (const item of items) {
     const p = path.join(resolved, item.name);
     try {
+      const skip = systemOrPartial(item.name);
+      if (skip) throw new Error(skip);
       output.push(await readEntry(root, p));
     } catch (error) {
       output.push({
@@ -104,7 +116,8 @@ export async function importPaths(root: string, paths: string[]): Promise<Import
     output.push({ entry, parentSourceId });
     if (entry.kind === 'folder') {
       const children = await fs.readdir(entry.path);
-      for (const name of children) await visit(path.join(entry.path, name), entry.id);
+      for (const name of children)
+        if (!systemOrPartial(name)) await visit(path.join(entry.path, name), entry.id);
     }
   };
   const unique = [...new Set(paths.map((p) => checkPath(root, p)))];

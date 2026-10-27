@@ -51,6 +51,12 @@ export interface ProjectRecord {
   rootPath: string;
   updatedAt: string;
 }
+// A common place offered for opening, such as 下载 or 桌面 (only places that exist).
+export interface KnownFolder {
+  id: string;
+  label: string;
+  path: string;
+}
 export interface ImportEntry {
   entry: SourceEntry;
   parentSourceId: string | null;
@@ -207,6 +213,16 @@ export interface FileCanvasApi {
     history: { role: 'user' | 'assistant'; content: string }[],
   ): Promise<ApiResult<AiReply>>;
   openRoot(): Promise<ApiResult<Project | null>>;
+  knownFolders(): Promise<ApiResult<KnownFolder[]>>;
+  openKnown(id: string): Promise<ApiResult<Project>>;
+  openDropped(file: File): Promise<ApiResult<Project>>;
+  // Saves the given visible part of the window as a PNG; null when the user cancels.
+  saveImage(rect: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  }): Promise<ApiResult<string | null>>;
   listDirectory(path: string): Promise<ApiResult<SourceEntry[]>>;
   search(query: string): Promise<ApiResult<{ entries: SourceEntry[]; truncated: boolean }>>;
   importPaths(paths: string[]): Promise<ApiResult<ImportEntry[]>>;

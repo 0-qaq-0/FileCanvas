@@ -2,6 +2,8 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 
 export interface MenuItem {
+  // Needed only when two items can share a label (two projects with the same name).
+  id?: string;
   label: string;
   icon?: ReactNode;
   onClick(): void;
@@ -93,7 +95,7 @@ export function ContextMenu({
         </div>
       )}
       {items.map((item) => (
-        <div key={item.label}>
+        <div key={item.id ?? item.label}>
           {item.group && <hr role="separator" />}
           <button
             role="menuitem"

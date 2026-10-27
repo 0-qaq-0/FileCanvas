@@ -32,9 +32,13 @@ import {
   SlidersHorizontal,
   Shapes,
   ChevronDown,
+  Download,
+  History,
+  Monitor,
 } from 'lucide-react';
 import type {
   ApiResult,
+  KnownFolder,
   NodeMap,
   Preview,
   Project,
@@ -60,6 +64,9 @@ import {
   setGridColumns,
 } from './domain/workspace';
 import { columnsForWidth } from './domain/canvas-layout';
+import { comparePlan } from './domain/comparison';
+import { ReportDialog } from './components/ReportDialog';
+import type { ApplyReport } from './components/ReportDialog';
 import { Browser } from './components/Browser';
 import { Canvas } from './components/ExpandedCanvas';
 import { Modal, MoveDialog, PreviewDialog, ProjectsDialog } from './components/Dialogs';
@@ -142,6 +149,10 @@ export default function App() {
   const [renameId, setRenameId] = useState('');
   const [createParentId, setCreateParentId] = useState<string | null>(null);
   const [records, setRecords] = useState<ProjectRecord[]>([]);
+  const [places, setPlaces] = useState<KnownFolder[]>([]);
+  const [openMenu, setOpenMenu] = useState<{ x: number; y: number } | null>(null);
+  const [dropping, setDropping] = useState(false);
+  const [report, setReport] = useState<ApplyReport | null>(null);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [showUnchanged, setShowUnchanged] = useState(false);
   const [exportPath, setExportPath] = useState<string | null>(null);
@@ -279,6 +290,7 @@ export default function App() {
       })
       .catch((error) => notify(`上次项目未能恢复：${error.message}`))
       .finally(() => setStarting(false));
+    refreshPlaces();
   }, []);
   useEffect(() => {
     if (state) void persist(state.project).catch(() => {});
@@ -421,11 +433,24 @@ export default function App() {
     if (!current.current) setGridColumns(columnsForWidth(window.innerWidth));
     return preferredColumns();
   }
-  function openFolder() {
+  // The dialog, a common place and a dropped folder all open a new project the same way.
+  function openFolder(
+    choose: () => Promise<ApiResult<Project | null>> = () => window.fileCanvas.openRoot(),
+  ) {
     void run(async () => {
       await persist();
-      const project = unwrap(await window.fileCanvas.openRoot());
-      if (project) {
+      const project = unwrap(await choose());
+      if (project && Object.keys(project.nodes).length) {
+        // The folder still had an unapplied plan, so that project came back instead of a new one.
+        replace(workspace(project));
+        enter(null);
+        setSelected([]);
+        setPreview(null);
+        setExportPath(null);
+        setInspectId(null);
+        setShowAi(false);
+        notify('已回到这个文件夹上次没应用的整理计划。外部有新文件时，用“刷新并核对”加入。');
+      } else if (project) {
         const entries = unwrap(await window.fileCanvas.listDirectory(project.rootPath));
         try {
           const imported = unwrap(
@@ -448,6 +473,65 @@ export default function App() {
         setShowAi(false);
       }
     });
+  }
+  function loadProject(id: string) {
+    void run(async () => {
+      await persist();
+      const project = unwrap(await window.fileCanvas.load(id));
+      replace(workspace(project));
+      enter(null);
+      setDialog(null);
+      notify('已恢复项目结构与布局。虚拟撤销历史从此次打开开始记录。');
+    });
+  }
+  // Newest project per folder, so opening 下载 several times shows it once.
+  const recent = records
+    .filter((r, i) => records.findIndex((o) => o.rootPath === r.rootPath) === i)
+    .slice(0, 5);
+  function refreshPlaces() {
+    void window.fileCanvas
+      ?.knownFolders()
+      .then((result) => result.ok && setPlaces(result.data ?? []))
+      .catch(() => {});
+    void window.fileCanvas
+      ?.projects()
+      .then((result) => result.ok && setRecords(result.data ?? []))
+      .catch(() => {});
+  }
+  function openMenuItems(): MenuItem[] {
+    return [
+      {
+        label: '选择文件夹…',
+        icon: <FolderOpen size={14} />,
+        onClick: () => openFolder(),
+      },
+      ...places.map((place, index) => ({
+        id: `place-${place.id}`,
+        label: `整理${place.label}`,
+        hint: place.path,
+        icon: place.id === 'desktop' ? <Monitor size={14} /> : <Download size={14} />,
+        group: index === 0,
+        onClick: () => openFolder(() => window.fileCanvas.openKnown(place.id)),
+      })),
+      ...recent
+        .filter((r) => r.id !== state?.project.id)
+        .map((record, index) => ({
+          id: `recent-${record.id}`,
+          label: record.name,
+          hint: record.rootPath,
+          icon: <History size={14} />,
+          group: index === 0,
+          onClick: () => loadProject(record.id),
+        })),
+    ];
+  }
+  // Dropping a folder from Explorer anywhere on the welcome page opens it.
+  function dropToOpen(event: React.DragEvent) {
+    event.preventDefault();
+    setDropping(false);
+    const file = event.dataTransfer.files[0];
+    if (!file) return notify('请从资源管理器拖入一个文件夹。');
+    openFolder(() => window.fileCanvas.openDropped(file));
   }
   async function openDemo(quiet = false) {
     let created = false;
@@ -800,9 +884,19 @@ export default function App() {
         </div>
         <span className="header-project">{state?.project.name ?? '把文件放到一张画布上'}</span>
         <div className="toolbar-spacer" />
-        <button className="button subtle" disabled={busy || starting} onClick={openFolder}>
+        <button
+          className="button subtle"
+          aria-haspopup="menu"
+          disabled={busy || starting}
+          onClick={(e) => {
+            const box = e.currentTarget.getBoundingClientRect();
+            refreshPlaces();
+            setOpenMenu({ x: box.left, y: box.bottom + 4 });
+          }}
+        >
           <FolderOpen size={16} />
           打开文件夹
+          <ChevronDown size={13} />
         </button>
         <button
           className="button subtle"
@@ -1288,7 +1382,26 @@ export default function App() {
           }
         </main>
       ) : (
-        <main className="welcome">
+        <main
+          className={`welcome ${dropping ? 'is-dropping' : ''}`}
+          onDragOver={(e) => {
+            if (!e.dataTransfer.types.includes('Files')) return;
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'copy';
+            setDropping(true);
+          }}
+          onDragLeave={(e) => {
+            if (!e.currentTarget.contains(e.relatedTarget as Node)) setDropping(false);
+          }}
+          onDrop={dropToOpen}
+        >
+          {dropping && (
+            <div className="welcome-drop" data-testid="welcome-drop">
+              <FolderOpen size={34} />
+              <strong>松手，打开这个文件夹</strong>
+              <span>只会读取文件信息，确认应用前不会移动任何文件</span>
+            </div>
+          )}
           <div className="welcome-hero">
             <div className="welcome-copy">
               <span className="welcome-eyebrow">
@@ -1307,7 +1420,7 @@ export default function App() {
                 <button
                   className="button primary large"
                   disabled={starting || busy}
-                  onClick={openFolder}
+                  onClick={() => openFolder()}
                 >
                   <FolderOpen size={18} />
                   选择文件夹，开始整理
@@ -1340,23 +1453,43 @@ export default function App() {
                   开始新手教程
                 </button>
               )}
-              <ol className="welcome-flow">
-                <li>
-                  <b>1</b>
-                  <PanelLeft size={16} />
-                  浏览原始文件
-                </li>
-                <li>
-                  <b>2</b>
-                  <FolderPlus size={16} />
-                  在画布中分类
-                </li>
-                <li>
-                  <b>3</b>
-                  <ScanEye size={16} />
-                  核对并应用到本地
-                </li>
-              </ol>
+              {!!places.length && (
+                <div className="welcome-places" aria-label="常用位置">
+                  <span>常用位置</span>
+                  {places.map((place) => (
+                    <button
+                      key={place.id}
+                      className="button welcome-place"
+                      title={place.path}
+                      disabled={starting || busy}
+                      onClick={() => openFolder(() => window.fileCanvas.openKnown(place.id))}
+                    >
+                      {place.id === 'desktop' ? <Monitor size={15} /> : <Download size={15} />}
+                      整理{place.label}
+                    </button>
+                  ))}
+                  <small>或把文件夹拖进窗口</small>
+                </div>
+              )}
+              {!!recent.length && (
+                <div className="welcome-recent" aria-label="最近整理">
+                  <span>最近整理</span>
+                  {recent.slice(0, 3).map((record) => (
+                    <button
+                      key={record.id}
+                      className="welcome-recent-item"
+                      title={record.rootPath}
+                      disabled={starting || busy}
+                      onClick={() => loadProject(record.id)}
+                    >
+                      <History size={14} />
+                      <strong>{record.name}</strong>
+                      <small>{record.rootPath}</small>
+                      <time>{new Date(record.updatedAt).toLocaleDateString('zh-CN')}</time>
+                    </button>
+                  ))}
+                </div>
+              )}
               <div className="welcome-note">
                 <ShieldCheck size={15} />
                 拖动先预演，确认整理后才实际移动文件。
@@ -1400,6 +1533,15 @@ export default function App() {
         </div>
       )}
       {tour && <Tutorial onClose={finishTour} />}
+      {openMenu && (
+        <ContextMenu
+          x={openMenu.x}
+          y={openMenu.y}
+          label="打开"
+          items={openMenuItems()}
+          onClose={() => setOpenMenu(null)}
+        />
+      )}
       {menu && (
         <ContextMenu
           x={menu.x}
@@ -1478,20 +1620,7 @@ export default function App() {
         </Modal>
       )}
       {dialog === 'projects' && (
-        <ProjectsDialog
-          records={records}
-          onClose={() => setDialog(null)}
-          onLoad={(id) =>
-            void run(async () => {
-              await persist();
-              const project = unwrap(await window.fileCanvas.load(id));
-              replace(workspace(project));
-              enter(null);
-              setDialog(null);
-              notify('已恢复项目结构与布局。虚拟撤销历史从此次打开开始记录。');
-            })
-          }
-        />
+        <ProjectsDialog records={records} onClose={() => setDialog(null)} onLoad={loadProject} />
       )}
       {dialog === 'batch' && (
         <BatchRenameDialog
@@ -1554,17 +1683,37 @@ export default function App() {
           }
           onApply={() =>
             void run(async () => {
-              const result = unwrap(
-                await window.fileCanvas.applyChanges(current.current!.project, preview.planId!),
-              );
+              const planned = current.current!.project;
+              // Taken before applying: afterwards the sources already point at the new places.
+              const comparison = comparePlan(planned.nodes, planned.rootPath);
+              const count = (...kinds: string[]) =>
+                preview.changes.filter((c) => kinds.includes(c.kind)).length;
+              const result = unwrap(await window.fileCanvas.applyChanges(planned, preview.planId!));
               replace(workspace(result.project));
               enter(null);
               setDialog(null);
               setCanUndoDisk(true);
               setHighlighted(null);
-              notify(result.message);
+              setReport({
+                comparison,
+                moved: count('move', 'move-rename'),
+                renamed: count('rename'),
+                created: count('create'),
+                projectName: planned.name,
+                finishedAt: new Date().toISOString(),
+              });
             })
           }
+        />
+      )}
+      {report && (
+        <ReportDialog
+          report={report}
+          onRecover={() => {
+            setReport(null);
+            setDialog('recovery');
+          }}
+          onClose={() => setReport(null)}
         />
       )}
       {dialog === 'recovery' && state && (

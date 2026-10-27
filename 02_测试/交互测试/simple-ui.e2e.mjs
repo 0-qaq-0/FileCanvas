@@ -30,6 +30,20 @@ const fixtures = {
 };
 for (const [name, contents] of Object.entries(fixtures))
   await fs.writeFile(path.join(root, name), contents);
+// Stand-ins for the user's 下载 and 桌面, with files Windows and browsers keep for themselves.
+const known = path.join(base, '常用位置'),
+  downloads = path.join(known, '下载');
+await fs.mkdir(path.join(known, '桌面'), { recursive: true });
+await fs.mkdir(downloads);
+for (const name of [
+  '会议纪要.docx',
+  '截图.png',
+  '安装包.exe',
+  'desktop.ini',
+  '~$纪要.docx',
+  '电影.mp4.crdownload',
+])
+  await fs.writeFile(path.join(downloads, name), name);
 const env = {
   ...process.env,
   TEMP: shots,
@@ -37,6 +51,7 @@ const env = {
   FILECANVAS_E2E: '1',
   FILECANVAS_TEST_DATA: data,
   FILECANVAS_TEST_ROOT: root,
+  FILECANVAS_TEST_KNOWN: known,
 };
 delete env.ELECTRON_RUN_AS_NODE;
 async function fingerprint() {
@@ -90,7 +105,24 @@ try {
 
   await expect(page.getByRole('button', { name: '选择文件夹，开始整理' })).toBeVisible();
   await expect(page.locator('.welcome-header > button:visible')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '整理下载', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: '整理桌面', exact: true })).toBeVisible();
+  await expect(page.locator('.welcome-recent')).toHaveCount(0);
   await shot('01-欢迎页.png');
+  // Dragging files over the page shows where to drop; a drop without a real path (all a
+  // synthetic test drop can carry) is refused with a clear message instead of opening anything.
+  const dropData = await page.evaluateHandle(() => {
+    const data = new DataTransfer();
+    data.items.add(new File(['x'], '不是真实路径.txt'));
+    return data;
+  });
+  await page.dispatchEvent('main.welcome', 'dragover', { dataTransfer: dropData });
+  await expect(page.getByTestId('welcome-drop')).toBeVisible();
+  await shot('14-拖入打开.png');
+  await page.dispatchEvent('main.welcome', 'drop', { dataTransfer: dropData });
+  await expect(page.getByTestId('welcome-drop')).toHaveCount(0);
+  await expect(page.locator('.toast')).toContainText('没有读到文件夹位置');
+  await clearToast();
   await page.getByRole('button', { name: '选择文件夹，开始整理' }).click();
   await expect(page.locator('.statusbar')).toContainText('11 个文件 · 3 个文件夹');
   await expect(page.getByTestId('save-state')).toHaveText('项目已保存');
@@ -393,6 +425,29 @@ try {
   await preview.getByRole('button', { name: '应用到本地文件', exact: true }).click();
   await expect(preview).toHaveCount(0, { timeout: 20000 });
   await expect(page.locator('.canvas-safe')).toContainText('已应用并核验');
+  // The completion report: counts, a before/after card with file names hidden by default.
+  const report = page.getByRole('dialog', { name: '整理完成', exact: true });
+  await expect(page.getByTestId('report-summary')).toContainText('移动');
+  await expect(page.getByTestId('report-summary')).toContainText('新建文件夹');
+  const compare = page.getByTestId('compare-card');
+  await expect(compare).toContainText('整理前');
+  await expect(compare).toContainText('散放文件 8 个');
+  await expect(compare.locator('.compare-pane').last()).toContainText('还有 4 个文件夹');
+  await expect(compare.locator('.compare-pane').first()).toContainText('散放 8 个文件');
+  await expect(compare.locator('.compare-pane').last()).toContainText('没有散放文件');
+  await expect(compare.locator('.compare-pane').last().locator('.compare-loose')).toHaveCount(0);
+  await expect(compare).not.toContainText('合作方案.pdf');
+  await report.getByLabel(/图中显示文件名/).check();
+  await expect(compare).toContainText('合作方案.pdf');
+  await report.getByLabel(/图中显示文件名/).uncheck();
+  await shot('09-完成报告.png');
+  await report.getByRole('button', { name: '保存对比图', exact: true }).click();
+  await expect(report.locator('.report-saved')).toContainText('FileCanvas-整理前后对比');
+  const exported = (await fs.readdir(path.join(data, 'exports'))).filter((n) => n.endsWith('.png'));
+  expect(exported).toHaveLength(1);
+  const png = await fs.readFile(path.join(data, 'exports', exported[0]));
+  expect(png.subarray(1, 4).toString()).toBe('PNG');
+  await fs.copyFile(path.join(data, 'exports', exported[0]), path.join(shots, '15-对比图.png'));
   const after = await fingerprint();
   expect(after[path.join('PDF', '合作方案.pdf')]).toBe(before['合作方案.pdf']);
   expect(after['合作方案.pdf']).toBeUndefined();
@@ -405,16 +460,50 @@ try {
       .filter((value) => value !== 'folder')
       .sort(),
   );
-  await shot('09-应用完成.png');
-  await page
-    .locator('.canvas-navigation')
-    .getByRole('button', { name: '恢复上次文件移动', exact: true })
-    .click();
+  // The way back is offered right in the report.
+  await report.getByRole('button', { name: '恢复上次文件移动', exact: true }).click();
+  await expect(report).toHaveCount(0);
   await page.getByRole('button', { name: '恢复文件原位置', exact: true }).click();
   await expect(page.getByRole('dialog')).toHaveCount(0, { timeout: 20000 });
   expect(await fingerprint()).toEqual(before);
   pass(
     '自动分类默认按类型，其他规则按需选择；分类可撤销/重做；真实应用后所有文件 SHA256 保持一致，恢复后完整目录一致',
+  );
+  pass('应用后出现完成报告：计数、整理前后对比默认隐藏文件名，可保存为 PNG，并可从报告直接恢复');
+
+  // The 打开 menu offers common places and recent projects; system files and downloads in
+  // progress in 下载 are never put on the canvas.
+  await page.getByRole('button', { name: '打开文件夹', exact: true }).click();
+  const openMenu = page.getByRole('menu', { name: '打开', exact: true });
+  await expect(openMenu.getByRole('menuitem', { name: '整理桌面' })).toBeVisible();
+  await openMenu.getByRole('menuitem', { name: '整理下载' }).click();
+  await expect(page.locator('.statusbar')).toContainText('共 3 个文件');
+  for (const name of ['会议纪要.docx', '截图.png', '安装包.exe'])
+    await expect(card(name)).toBeVisible();
+  for (const name of ['desktop.ini', '~$纪要.docx', '电影.mp4.crdownload'])
+    await expect(card(name)).toHaveCount(0);
+  // An unapplied plan in 下载 is not lost: opening 下载 again brings that plan back.
+  await blankMenu();
+  await backgroundMenu().getByRole('menuitem', { name: '新建文件夹', exact: true }).click();
+  await page.getByLabel('名称', { exact: true }).fill('待整理');
+  await page.getByRole('button', { name: '创建', exact: true }).click();
+  await expect(card('待整理')).toHaveCount(1);
+  await page.getByRole('button', { name: '打开文件夹', exact: true }).click();
+  await openMenu.getByRole('menuitem', { name: '示例文件' }).click();
+  await expect(page.locator('.statusbar')).toContainText('共 11 个文件');
+  await page.getByRole('button', { name: '打开文件夹', exact: true }).click();
+  await openMenu.getByRole('menuitem', { name: '整理下载' }).click();
+  await expect(card('待整理')).toHaveCount(1);
+  await expect(page.locator('.toast')).toContainText('上次没应用的整理计划');
+  await clearToast();
+  await page.getByRole('button', { name: '打开文件夹', exact: true }).click();
+  // The project that is open now is not offered again under the recent projects.
+  await expect(openMenu.getByRole('menuitem', { name: '下载', exact: true })).toHaveCount(0);
+  await shot('16-打开菜单.png');
+  await openMenu.getByRole('menuitem', { name: '示例文件' }).click();
+  await expect(page.locator('.statusbar')).toContainText('共 11 个文件');
+  pass(
+    '打开菜单提供下载、桌面和最近项目；系统文件、Office 临时文件和下载中的文件不进入画布；再次整理下载会回到未应用的计划',
   );
 
   // Show every tutorial step after changing control locations.
