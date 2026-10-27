@@ -6,6 +6,12 @@ export const CARD_HEIGHT = 138;
 export const GRID_STEP = 156;
 export const COORD_MAX = 49000;
 const COLUMN = CARD_WIDTH + 14;
+/** The canvas keeps this much room right of the last card (see the surface size in Canvas). */
+export const CANVAS_RIGHT_MARGIN = 40;
+/** Cards that fit across a canvas this wide without sideways scrolling; they start 32px in. */
+export function columnsForWidth(width: number): number {
+  return Math.floor((width - 1 - 32 - CARD_WIDTH - CANVAS_RIGHT_MARGIN) / GRID_STEP) + 1;
+}
 export interface CanvasRect {
   id: string;
   x: number;

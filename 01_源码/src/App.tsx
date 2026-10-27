@@ -56,7 +56,10 @@ import {
   workspace,
   isDescendant,
   moveToNewFolder,
+  preferredColumns,
+  setGridColumns,
 } from './domain/workspace';
+import { columnsForWidth } from './domain/canvas-layout';
 import { Browser } from './components/Browser';
 import { Canvas } from './components/ExpandedCanvas';
 import { Modal, MoveDialog, PreviewDialog, ProjectsDialog } from './components/Dialogs';
@@ -413,6 +416,11 @@ export default function App() {
       if (current.current) await refreshOperation();
     }
   }
+  // Cards laid out before any canvas has measured itself (nothing open yet) use the window width.
+  function canvasColumns() {
+    if (!current.current) setGridColumns(columnsForWidth(window.innerWidth));
+    return preferredColumns();
+  }
   function openFolder() {
     void run(async () => {
       await persist();
@@ -425,6 +433,7 @@ export default function App() {
               entries.filter((e) => !e.blocked).map((e) => e.path),
             ),
           );
+          canvasColumns();
           replace(importEntries(workspace(project), imported, null));
         } catch (e) {
           replace(workspace(project));
@@ -444,7 +453,7 @@ export default function App() {
     let created = false;
     await run(async () => {
       await persist();
-      const project = unwrap(await window.fileCanvas.openDemo());
+      const project = unwrap(await window.fileCanvas.openDemo(canvasColumns()));
       replace(workspace(project));
       enter(null);
       setPreview(null);
@@ -1008,7 +1017,17 @@ export default function App() {
                   </span>
                 ))}
               </div>
-              {!pendingCount && (
+              {/* The count lives on "预览并应用"; this chip only says the disk is still untouched. */}
+              {pendingCount ? (
+                <span
+                  className="canvas-safe is-pending"
+                  data-testid="pending-chip"
+                  title={`画布已保存，共 ${pendingCount} 项变化。点“预览并应用”核对后才会改动本地文件。`}
+                >
+                  <ShieldCheck size={13} />
+                  尚未应用 · 本地文件未改动
+                </span>
+              ) : (
                 <span className="canvas-safe">
                   <ShieldCheck size={13} />
                   {operation?.status === 'applied' ? '已应用并核验' : '当前路径与本地一致'}
@@ -1353,8 +1372,8 @@ export default function App() {
             ? `演示副本 · ${state.project.name}`
             : (state?.project.rootPath ?? '尚未打开文件夹')}
         </span>
-        <span>
-          {fileCount} 个文件 · {Object.keys(nodes).length - fileCount} 个文件夹
+        <span title="项目内全部内容，包括文件夹里的">
+          共 {fileCount} 个文件 · {Object.keys(nodes).length - fileCount} 个文件夹
         </span>
         <span>{pendingCount} 项待变更</span>
         <span
@@ -1575,6 +1594,7 @@ export default function App() {
           state={state}
           parentId={parentId}
           initialMode={draftStart}
+          columns={preferredColumns()}
           onClose={() => setDialog(null)}
           onAdopt={(mode, options) => {
             if (!current.current) return;

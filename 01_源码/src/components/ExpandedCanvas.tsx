@@ -9,16 +9,23 @@ import {
   ChevronRight,
   Expand,
   ExternalLink,
-  Home,
   Search,
   X,
 } from 'lucide-react';
 import type { CanvasNode, FileContent, NodeMap } from '../domain/types';
-import { children, relativeTarget, topLevelSelection, isDescendant } from '../domain/workspace';
 import {
+  children,
+  relativeTarget,
+  setGridColumns,
+  topLevelSelection,
+  isDescendant,
+} from '../domain/workspace';
+import {
+  CANVAS_RIGHT_MARGIN,
   GRID_STEP,
   arrangeItems,
   clampCoord,
+  columnsForWidth,
   dropGrid,
   expandedLayout,
   folderAt,
@@ -161,13 +168,16 @@ export function Canvas(props: Props) {
   }
   function measure() {
     const el = container.current;
-    if (el)
-      setViewport({
-        x: el.scrollLeft / zoomRef.current,
-        y: el.scrollTop / zoomRef.current,
-        width: el.clientWidth / zoomRef.current,
-        height: el.clientHeight / zoomRef.current,
-      });
+    if (!el) return;
+    const width = el.clientWidth / zoomRef.current;
+    setViewport({
+      x: el.scrollLeft / zoomRef.current,
+      y: el.scrollTop / zoomRef.current,
+      width,
+      height: el.clientHeight / zoomRef.current,
+    });
+    // New cards fill the visible width, so they never need sideways scrolling.
+    if (width > 0) setGridColumns(columnsForWidth(width));
   }
   useEffect(() => {
     const observer = new ResizeObserver(measure);
@@ -250,7 +260,7 @@ export function Canvas(props: Props) {
   const width = Math.max(
     viewport.width - 1,
     600,
-    ...layout.map((r) => r.x + r.width + 40),
+    ...layout.map((r) => r.x + r.width + CANVAS_RIGHT_MARGIN),
     ...Object.values(draft).map((r) => r.x + 180),
   );
   useEffect(() => {
@@ -476,7 +486,7 @@ export function Canvas(props: Props) {
       })),
       mode,
       origin,
-      Math.max(600, viewport.width - origin.x - 32),
+      Math.max(600, viewport.width - 1 - origin.x - CANVAS_RIGHT_MARGIN),
     );
     raise(chosen.map((r) => r.id));
     props.onLayout(positions, mode === 'type' ? '按类型排列' : '排列整齐');
@@ -565,7 +575,7 @@ export function Canvas(props: Props) {
       <div className="canvas-tools">
         <span>
           <MousePointer2 size={13} />
-          整理画布 · {layout.length} 项
+          本层 {children(nodes, parentId).length} 项
         </span>
         <div className="canvas-filter">
           <Search size={13} />
@@ -732,10 +742,6 @@ export function Canvas(props: Props) {
             onPointerUp={(e) => finish(e)}
             onPointerCancel={(e) => finish(e, true)}
           >
-            <div className={`root-drop-label ${hover === parentId ? 'receiving' : ''}`}>
-              <Home size={13} />
-              {parentId ? nodes[parentId]?.name : '项目根目录'} <span>拖到容器外，放回这里</span>
-            </div>
             {!layout.length && (
               <div className="canvas-empty">
                 <FileIcon name="" folder size={54} />
@@ -870,12 +876,13 @@ export function Canvas(props: Props) {
                       </div>
                       <div className="folder-container-caption">
                         {children(nodes, node.id).length
-                          ? `${folderSize(folderSummaries.get(node.id)!)} · 画布内文件 · 可直接拖入、拖出`
+                          ? `${folderSize(folderSummaries.get(node.id)!)} · 可直接拖入、拖出`
                           : '拖文件到这里'}
                       </div>
                     </>
                   ) : (
                     <>
+                      {/* The icon already shows the extension; the label only adds the Chinese type. */}
                       <span
                         className="card-type"
                         title={isFolder ? '文件夹' : fileInfo(node.name).description}
@@ -883,8 +890,8 @@ export function Canvas(props: Props) {
                         {node.reviewDelete
                           ? '待删除候选 · 未删除'
                           : isFolder
-                            ? '文件夹'
-                            : fileInfo(node.name).description}
+                            ? ''
+                            : fileInfo(node.name).shortLabel}
                       </span>
                       {pendingLabel(node) && (
                         <span className="pending-badge card-pending">{pendingLabel(node)}</span>
@@ -893,7 +900,7 @@ export function Canvas(props: Props) {
                         <span className="filter-badge">含 {inside} 个匹配</span>
                       )}
                       {isFolder ? (
-                        <FolderVisual summary={folderSummaries.get(node.id)} />
+                        <FolderVisual summary={folderSummaries.get(node.id)} name={node.name} />
                       ) : (
                         <CardVisual node={node} previews={previews} />
                       )}

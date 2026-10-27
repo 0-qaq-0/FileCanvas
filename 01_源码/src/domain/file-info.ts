@@ -25,7 +25,7 @@ export function fileInfo(name: string) {
   const displayLabel = label === '代码与配置' ? '代码' : label;
   const description =
     label === 'PDF' ? 'PDF 文档' : extension ? `${displayLabel} · ${extension}` : displayLabel;
-  return { extension, label, tone, description };
+  return { extension, label, shortLabel: displayLabel, tone, description };
 }
 
 export function formatSize(size: number | null | undefined): string {

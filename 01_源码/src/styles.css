@@ -2301,24 +2301,6 @@ button {
   outline: 3px solid #72ac63;
   outline-offset: 3px;
 }
-.root-drop-label {
-  position: absolute;
-  left: 28px;
-  top: 8px;
-  font-size: 10.5px;
-  display: flex;
-  gap: 5px;
-  align-items: center;
-  color: var(--fc-muted);
-  pointer-events: none;
-}
-.root-drop-label span {
-  margin-left: 8px;
-  font-size: 10.5px;
-}
-.root-drop-label.receiving {
-  color: #267344;
-}
 .drop-destination {
   position: sticky;
   left: 20px;

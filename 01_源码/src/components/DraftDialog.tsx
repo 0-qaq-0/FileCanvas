@@ -16,12 +16,15 @@ export function DraftDialog({
   state,
   parentId,
   initialMode,
+  columns,
   onAdopt,
   onClose,
 }: {
   state: Workspace;
   parentId: string | null;
   initialMode?: DraftMode;
+  // Icons per row for laying out the result (width-based); omit for the default.
+  columns?: number;
   onAdopt(mode: DraftMode, options: DraftOptions): void;
   onClose(): void;
 }) {
@@ -31,6 +34,7 @@ export function DraftDialog({
   );
   const [staleDays, setStaleDays] = useState(180);
   const [excluded, setExcluded] = useState<string[]>([]);
+  const [mergeSmall, setMergeSmall] = useState(true);
   const [open, setOpen] = useState<string[]>([]);
   // One clock for the preview and the adoption, so they always agree.
   const now = useRef(Date.now());
@@ -65,7 +69,14 @@ export function DraftDialog({
     if (version === saves.current)
       setRulesError(result.ok ? '' : `规则没能保存：${result.error ?? '未知错误'}。本次仍可使用。`);
   }
-  const options: DraftOptions = { now: now.current, staleDays, excluded, rules };
+  const options: DraftOptions = {
+    now: now.current,
+    staleDays,
+    excluded,
+    rules,
+    mergeSmall,
+    columns,
+  };
   const draft = useMemo(
     () =>
       buildClassificationDraft(state, parentId, mode, {
@@ -73,9 +84,19 @@ export function DraftDialog({
         staleDays,
         excluded,
         rules,
+        mergeSmall,
+        columns,
       }),
-    [state, parentId, mode, staleDays, excluded, rules],
+    [state, parentId, mode, staleDays, excluded, rules, mergeSmall, columns],
   );
+  // The merge switch only appears when it changes the result, so it never looks on but idle
+  // (for example when every type has a single file, they stay one folder per type).
+  const mergeMatters = useMemo(() => {
+    if (mode !== 'type') return false;
+    const build = (merge: boolean) =>
+      buildClassificationDraft(state, parentId, 'type', { now: now.current, mergeSmall: merge });
+    return build(true).groups.length !== build(false).groups.length;
+  }, [state, parentId, mode]);
   const loose = useMemo(
     () => children(state.project.nodes, parentId).filter((n) => n.kind === 'file').length,
     [state, parentId],
@@ -117,6 +138,23 @@ export function DraftDialog({
           <p>{INFO[mode].description}</p>
           <small>仅整理当前层的文件；按名称、扩展名与时间匹配，子文件夹保持原样。</small>
         </div>
+        {mergeMatters && (
+          <div className="draft-options">
+            <label className="check-line">
+              <input
+                type="checkbox"
+                checked={mergeSmall}
+                onChange={(e) => {
+                  setMergeSmall(e.target.checked);
+                  // Folder names change with the merge, so old switches no longer apply.
+                  setExcluded([]);
+                  setOpen([]);
+                }}
+              />
+              零散类型合并到“其他”
+            </label>
+          </div>
+        )}
         {mode === 'stale' && (
           <div className="draft-options">
             <label>

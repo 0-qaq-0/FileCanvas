@@ -144,6 +144,16 @@ export function redo(state: Workspace): Workspace {
 export function children(nodes: NodeMap, parentId: string | null): CanvasNode[] {
   return Object.values(nodes).filter((n) => n.parentId === parentId);
 }
+// How many cards fit across the visible canvas; the canvas reports it whenever its width
+// changes, so new cards fill the window instead of a fixed five columns. Already placed cards
+// are never moved by this.
+let gridColumns = 5;
+export function setGridColumns(columns: number) {
+  gridColumns = Math.min(12, Math.max(4, Math.floor(columns) || 5));
+}
+export function preferredColumns(): number {
+  return gridColumns;
+}
 function vacantPosition(
   nodes: NodeMap,
   parentId: string | null,
@@ -151,10 +161,11 @@ function vacantPosition(
   position = { x: 32, y: 32 },
 ): { x: number; y: number } {
   const occupied = children(nodes, parentId);
+  const columns = gridColumns;
   for (let index = start; index < MAX_NODES * 2; index++) {
     const block = Math.floor(index / 1000);
-    const x = Math.min(position.x, 45000) + ((index % 5) + block * 5) * 156;
-    const y = Math.min(position.y, 45000) + Math.floor((index % 1000) / 5) * 156;
+    const x = Math.min(position.x, 45000) + ((index % columns) + block * columns) * 156;
+    const y = Math.min(position.y, 45000) + Math.floor((index % 1000) / columns) * 156;
     if (x > 49000 || y > 49000) continue;
     if (!occupied.some((n) => x < n.x + 148 && x + 148 > n.x && y < n.y + 150 && y + 150 > n.y))
       return { x, y };

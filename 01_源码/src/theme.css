@@ -360,9 +360,6 @@ button {
   background: var(--fc-brand-soft);
   border-color: var(--fc-brand);
 }
-.root-drop-label {
-  color: var(--fc-muted);
-}
 .canvas-first .canvas-hint {
   background: var(--fc-surface);
   border-top: 1px solid var(--fc-line);

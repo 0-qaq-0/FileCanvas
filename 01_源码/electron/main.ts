@@ -22,7 +22,7 @@ import { ProjectStorage } from './storage';
 import { RulesStorage } from './rules-storage';
 import { PreferencesStorage } from './preferences-storage';
 import { createSampleFolder } from './demo-samples';
-import { importEntries, workspace } from '../src/domain/workspace';
+import { importEntries, setGridColumns, workspace } from '../src/domain/workspace';
 import { markdownPlan } from '../src/domain/plan-report';
 import type { Project } from '../src/domain/types';
 import { AiService } from './ai';
@@ -300,7 +300,7 @@ app.whenReady().then(async () => {
       return project;
     }),
   );
-  handle('fc:open-demo', async () => {
+  handle('fc:open-demo', async (columns?: number) => {
     if (fileOperation) throw new Error('请等待文件整理完成。');
     const owner = app.getPath('userData');
     const runDirectory = path.join(owner, 'demo-runs', randomUUID());
@@ -324,6 +324,8 @@ app.whenReady().then(async () => {
       canonicalRoot,
       (await listDirectory(canonicalRoot, canonicalRoot)).map((e) => e.path),
     );
+    // Lay the cards out as wide as the window's canvas, like folders opened in the window.
+    if (typeof columns === 'number') setGridColumns(columns);
     const populated = importEntries(workspace(project), entries, null).project;
     await storage.save(populated);
     return activate(populated);

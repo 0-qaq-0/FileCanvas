@@ -3,32 +3,37 @@ import { fileInfo, folderDescription, folderSize, formatSize } from '../domain/f
 import type { FolderSummary } from '../domain/file-info';
 import { FileIcon } from './FileIcon';
 
-export function FolderVisual({ summary }: { summary?: FolderSummary }) {
+/** Main content types of a folder, left out when they only repeat the folder's own name. */
+function folderTypes(summary: FolderSummary | undefined, name: string): string {
+  const labels = (summary?.types ?? []).slice(0, 2).map(([label]) => label);
+  return labels.length === 1 && labels[0] === name ? '' : labels.join(' / ');
+}
+
+export function FolderVisual({ summary, name = '' }: { summary?: FolderSummary; name?: string }) {
+  const types = folderTypes(summary, name);
   return (
     <div className="folder-glance" title={summary && folderDescription(summary)}>
       <FileIcon name="" folder size={40} />
-      {!!summary?.files && <span className="folder-count">{summary.files}</span>}
-      <span className="folder-types">
-        {summary?.types
-          .slice(0, 2)
-          .map(([label]) => label)
-          .join(' / ') || '文件夹'}
-      </span>
+      {types && <span className="folder-types">{types}</span>}
     </div>
   );
 }
 
+// Folder totals cover only what is on the canvas; the tooltip says so instead of every card.
 export function FileFacts({ node, summary }: { node: CanvasNode; summary?: FolderSummary }) {
   if (node.kind === 'folder' && summary)
     return (
       <small className="file-facts folder-facts" title={folderDescription(summary)}>
-        <span>
-          {summary.files} 个文件{summary.folders ? ` · ${summary.folders} 个文件夹` : ''}
-        </span>
-        <span className="fact-size">
-          {folderSize(summary)}
-          <span className="fact-scope"> · 画布内</span>
-        </span>
+        {summary.files || summary.folders ? (
+          <>
+            <span>
+              {summary.files} 个文件{summary.folders ? ` · ${summary.folders} 个文件夹` : ''}
+            </span>
+            <span className="fact-size">{folderSize(summary)}</span>
+          </>
+        ) : (
+          <span>空文件夹</span>
+        )}
       </small>
     );
   return (

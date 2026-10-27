@@ -215,7 +215,7 @@ export interface FileCanvasApi {
   load(id: string): Promise<ApiResult<Project>>;
   restore(): Promise<ApiResult<Project | null>>;
   preview(project: Project): Promise<ApiResult<Preview>>;
-  openDemo(): Promise<ApiResult<Project>>;
+  openDemo(columns?: number): Promise<ApiResult<Project>>;
   loadRules(): Promise<ApiResult<RulesLoad>>;
   saveRules(rules: OrganizeRule[]): Promise<ApiResult<OrganizeRule[]>>;
   loadPreferences(): Promise<ApiResult<PreferencesLoad>>;

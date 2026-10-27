@@ -124,6 +124,14 @@ export function PreviewDialog({
   const shown = preview.changes.filter(
     (c) => showUnchanged || c.kind !== 'unchanged' || c.issues.length,
   );
+  // Say what will happen in the user's words ("移动 8 项"), not as one total of plan entries.
+  const count = (...kinds: string[]) =>
+    preview.changes.filter((c) => kinds.includes(c.kind)).length;
+  const summary = [
+    { label: '移动', value: count('move', 'move-rename') },
+    { label: '改名', value: count('rename') },
+    { label: '新建文件夹', value: count('create') },
+  ].filter((item) => item.value);
   return (
     <Modal
       wide
@@ -131,19 +139,25 @@ export function PreviewDialog({
       subtitle="核对这份计划后应用到本地。执行前再次检查，完成后重新扫描并验证结果。"
       onClose={onClose}
     >
-      <div className="preview-summary">
-        <div>
-          <strong>{preview.changed}</strong>
-          <span>待变更条目</span>
-        </div>
-        <div>
-          <strong>{preview.unchanged}</strong>
-          <span>路径未改变</span>
-        </div>
-        <div className={preview.issues ? 'warning-text' : ''}>
-          <strong>{preview.issues}</strong>
-          <span>需要检查</span>
-        </div>
+      <div className="preview-summary" data-testid="preview-summary">
+        {summary.map((item) => (
+          <div key={item.label}>
+            <strong>{item.value}</strong>
+            <span>{item.label}</span>
+          </div>
+        ))}
+        {!summary.length && (
+          <div>
+            <strong>0</strong>
+            <span>没有路径变化</span>
+          </div>
+        )}
+        {!!preview.issues && (
+          <div className="warning-text">
+            <strong>{preview.issues}</strong>
+            <span>需要处理</span>
+          </div>
+        )}
         <span className="tag">
           <ShieldCheck size={13} />
           确认后才执行
@@ -152,10 +166,11 @@ export function PreviewDialog({
       <div className="preview-root">
         <span>本次整理目录</span>
         <code>{rootPath}</code>
-        <small>
-          整理涉及的文件夹里，另有 {preview.preserved ?? '其他'}{' '}
-          个未加入画布的条目，会原样保留；没有涉及的位置不会被读取或改动。原有未改动的空目录保留。每次最多
-          100 个文件。
+        <small
+          title={`整理涉及的文件夹里，另有 ${preview.preserved ?? '其他'} 个未加入画布的条目，会原样保留；没有涉及的位置不会被读取或改动。原有未改动的空目录保留。`}
+        >
+          {preview.preserved ? `画布外的 ${preview.preserved} 个条目原样保留 · ` : ''}
+          只改动上面列出的路径 · 每次最多 100 个文件
         </small>
       </div>
       {errorMessage && (

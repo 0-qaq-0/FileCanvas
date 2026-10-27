@@ -26,6 +26,12 @@ export interface DraftOptions extends RecipeOptions {
   excluded?: string[];
   // The rules for mode 'custom'; list order decides which rule wins.
   rules?: OrganizeRule[];
+  // Mode 'type' only: a type with a single file that has no folder on the canvas yet is
+  // folded into "其他" (when there is a real group to keep), instead of getting its own
+  // one-file folder. Off by default.
+  mergeSmall?: boolean;
+  // Icons per row when the result is laid out; defaults to a width that grows with the count.
+  columns?: number;
 }
 export interface ClassificationDraft {
   mode: DraftMode;
@@ -35,6 +41,7 @@ export interface ClassificationDraft {
   issues: string[];
   next: Workspace | null;
 }
+const MISC_FOLDER = '其他';
 export function classify(name: string, mode: 'type' | 'content-project'): Placement {
   return placeByName(name, mode);
 }
@@ -62,7 +69,7 @@ export function buildClassificationDraft(
   }
   const files = children(state.project.nodes, parentId).filter((n) => n.kind === 'file');
   const prefix = parentId ? relativeTarget(state.project.nodes, parentId) : [];
-  const everything = files.flatMap((node) => {
+  let everything = files.flatMap((node) => {
     const place =
       mode === 'custom' ? placeByRules(node, compiled, options) : placeFile(node, mode, options);
     return place
@@ -94,6 +101,34 @@ export function buildClassificationDraft(
     }
     return found;
   };
+  if (mode === 'type' && options.mergeSmall) {
+    const byFolder = new Map<string, typeof everything>();
+    for (const row of everything)
+      byFolder.set(row.folder, [...(byFolder.get(row.folder) ?? []), row]);
+    const isSmall = (folder: string, rows: typeof everything) =>
+      rows.length === 1 && findPath(state.project.nodes, folder)?.kind !== 'folder';
+    const small = [...byFolder].filter(([folder, rows]) => isSmall(folder, rows));
+    const hasRealGroup = small.length < byFolder.size;
+    const movable = small.filter(([folder]) => folder !== MISC_FOLDER).map(([, rows]) => rows[0]);
+    // A lone leftover is not worth a new "其他" folder, unless that folder is coming anyway.
+    if (
+      hasRealGroup &&
+      movable.length &&
+      movable.length + (byFolder.get(MISC_FOLDER)?.length ?? 0) >= 2
+    ) {
+      const ids = new Set(movable.map((row) => row.id));
+      everything = everything.map((row) =>
+        ids.has(row.id)
+          ? {
+              ...row,
+              folder: MISC_FOLDER,
+              reason: `该类型只有 1 个文件，并入“${MISC_FOLDER}”`,
+              to: [...prefix, MISC_FOLDER, row.name].join('/'),
+            }
+          : row,
+      );
+    }
+  }
   const allFolders = [...new Set(everything.map((row) => row.folder))];
   const ruleRank = (folder: string) => compiled.findIndex((c) => c.folder === folder);
   const groups: DraftGroup[] = allFolders
@@ -111,7 +146,10 @@ export function buildClassificationDraft(
           ? a.folder.localeCompare(b.folder, 'zh-CN', { numeric: true })
           : mode === 'month'
             ? b.folder.localeCompare(a.folder)
-            : b.rows.length - a.rows.length || a.folder.localeCompare(b.folder, 'zh-CN'),
+            : // "其他" is the leftovers, so it always comes last.
+              Number(a.folder === MISC_FOLDER) - Number(b.folder === MISC_FOLDER) ||
+              b.rows.length - a.rows.length ||
+              a.folder.localeCompare(b.folder, 'zh-CN'),
     );
   const rows = everything.filter((row) => !excluded.has(row.folder.toLowerCase()));
   // Folders are created in first-appearance order (not display order), so a file that
@@ -145,7 +183,10 @@ export function buildClassificationDraft(
         const visible = children(nodes, parentId).sort((a, b) =>
           a.name.localeCompare(b.name, 'zh-CN', { numeric: true }),
         );
-        const columns = Math.max(5, Math.ceil(visible.length / 300));
+        const columns = Math.max(
+          1,
+          Math.floor(options.columns ?? Math.max(5, Math.ceil(visible.length / 300))),
+        );
         visible.forEach((n, i) => {
           n.x = 32 + (i % columns) * 156;
           n.y = 32 + Math.floor(i / columns) * 156;

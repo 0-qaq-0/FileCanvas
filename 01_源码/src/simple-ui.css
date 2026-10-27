@@ -38,7 +38,13 @@
   font-size: 11px;
   background: transparent;
 }
-.operation-notice:not(.is-pending):not(.has-problem):not(.is-tour) {
+.canvas-safe.is-pending {
+  color: #8a5a12;
+  background: #fff6e3;
+  border-radius: 999px;
+}
+/* Pending changes show as a chip in the path bar; the full row is kept for problems and the tour. */
+.operation-notice:not(.has-problem):not(.is-tour) {
   display: none;
 }
 .operation-notice {
@@ -209,6 +215,7 @@
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
 }
 .canvas-card .folder-glance .file-icon {
   height: 29px;
@@ -226,20 +233,6 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.folder-count {
-  position: absolute;
-  top: 11px;
-  left: 65px;
-  min-width: 17px;
-  padding: 1px 4px;
-  border-radius: 6px;
-  background: #fff9e9;
-  color: #825511;
-  font-size: 9px;
-  line-height: 13px;
-  font-weight: 700;
-  border: 1px solid #e2bb6d;
-}
 .canvas-first .canvas-card .file-facts {
   display: flex;
   flex-direction: column;
@@ -255,11 +248,6 @@
 .fact-size {
   color: #374d57;
   font-weight: 550;
-}
-.fact-scope {
-  color: var(--fc-muted);
-  font-size: 9px;
-  font-weight: 400;
 }
 .card-preview-button {
   top: 22px;

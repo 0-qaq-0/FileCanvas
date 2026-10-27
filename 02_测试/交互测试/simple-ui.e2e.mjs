@@ -103,13 +103,32 @@ try {
   );
   await expect(page.getByRole('button', { name: '平铺视图' })).toHaveCount(0);
   await expect(card('参考资料').locator('.file-facts')).toContainText('3 个文件 · 1 个文件夹');
-  await expect(card('参考资料').locator('.file-facts')).toContainText('画布内');
+  await expect(card('参考资料').locator('.file-facts')).not.toContainText('画布内');
+  await expect(card('参考资料').locator('.card-type')).toHaveText('');
+  await expect(card('报价清单.xlsx').locator('.card-type')).toHaveText('表格');
+  // New cards fill the visible width instead of a fixed five columns, without sideways scrolling.
+  const canvasFit = () =>
+    page.evaluate(() => {
+      const scroller = document.querySelector('.canvas-scroll');
+      const lefts = [...document.querySelectorAll('[data-testid="canvas-card"]')].map(
+        (el) => el.style.left,
+      );
+      return {
+        columns: new Set(lefts).size,
+        overflow: scroller.scrollWidth - scroller.clientWidth,
+      };
+    });
+  const wide = await canvasFit();
+  expect(wide.columns).toBeGreaterThanOrEqual(7);
+  expect(wide.overflow).toBeLessThanOrEqual(1);
   await expect(card('参考资料').locator('.folder-types')).toHaveText('图片 / 文档');
   await expect(card('合作方案.pdf').locator('.card-type')).toContainText('PDF');
   await expect(card('报价清单.xlsx').locator('.file-facts')).toHaveText('32.0 KB');
-  await expect(card('空文件夹').locator('.file-facts')).toContainText('0 个文件');
+  await expect(card('空文件夹').locator('.file-facts')).toHaveText('空文件夹');
   await shot('02-简洁画布.png');
-  pass('欢迎页只突出开始入口；主界面收起低频工具；文件夹嵌套统计与文件大小可见');
+  pass(
+    '欢迎页只突出开始入口；主界面收起低频工具；文件夹嵌套统计与文件大小可见，卡片不重复类型文字；新卡片按窗口宽度排列',
+  );
 
   const fileMenu = () => page.getByRole('menu', { name: '文件操作', exact: true });
   const backgroundMenu = () => page.getByRole('menu', { name: '画布操作', exact: true });
@@ -280,7 +299,7 @@ try {
   await expect(page.locator('.statusbar')).toContainText('1 项待变更');
   expect(await fingerprint()).toEqual(before);
   await page.keyboard.press('Control+z');
-  await expect(card('空文件夹').locator('.file-facts')).toContainText('0 个文件');
+  await expect(card('空文件夹').locator('.file-facts')).toHaveText('空文件夹');
   await expect(page.locator('.statusbar')).toContainText('0 项待变更');
   await page.keyboard.press('Escape');
   await page.getByRole('button', { name: '画布选项', exact: true }).click();
@@ -331,9 +350,16 @@ try {
   expect(compactMenu.y + compactMenu.height).toBeLessThanOrEqual(680);
   await shot('13-小窗口右键.png');
   await page.keyboard.press('Escape');
+  await blankMenu();
+  await backgroundMenu()
+    .getByRole('menuitem', { name: /排列当前层/ })
+    .click();
+  expect((await canvasFit()).overflow).toBeLessThanOrEqual(1);
   await shot('05-小窗口.png');
   await page.setViewportSize({ width: 1280, height: 800 });
-  pass('设置内仍可使用平铺和分组；切回画布保留操作；1000×680 页面无横向溢出');
+  pass(
+    '设置内仍可使用平铺和分组；切回画布保留操作；1000×680 页面无横向溢出，排列后画布也无横向滚动',
+  );
 
   await page.getByRole('button', { name: '自动分类', exact: true }).click();
   const draft = page.getByRole('dialog', { name: '自动分类', exact: true });
@@ -342,18 +368,24 @@ try {
   await expect(draft).toContainText('还没有规则');
   await draft.getByLabel('分类方式').selectOption('type');
   await expect(draft.getByRole('switch', { name: '整理到 PDF', exact: true })).toBeVisible();
+  // Every root type has one file here, so merging changes nothing and the switch stays hidden.
+  await expect(draft.getByLabel('零散类型合并到“其他”')).toHaveCount(0);
   await shot('06-自动分类.png');
   await draft.getByRole('button', { name: '采用草案到画布' }).click();
-  await expect(page.getByTestId('operation-notice')).toContainText('尚未应用');
+  await expect(page.getByTestId('pending-chip')).toContainText('尚未应用');
+  await expect(page.getByTestId('operation-notice')).toBeHidden();
   expect(await fingerprint()).toEqual(before);
   await page.keyboard.press('Control+z');
   await expect(page.locator('.statusbar')).toContainText('0 项待变更');
   await page.keyboard.press('Control+y');
-  await expect(page.getByTestId('operation-notice')).toContainText('尚未应用');
+  await expect(page.getByTestId('pending-chip')).toContainText('尚未应用');
   await shot('07-分类后的画布.png');
   await page.getByRole('button', { name: /预览并应用/ }).click();
   const preview = page.getByRole('dialog', { name: '预览整理结果' });
   await expect(preview.locator('.preview-summary .warning-text')).toHaveCount(0);
+  await expect(page.getByTestId('preview-summary')).toContainText('移动');
+  await expect(page.getByTestId('preview-summary')).toContainText('新建文件夹');
+  await expect(page.getByTestId('preview-summary')).not.toContainText('路径未改变');
   await preview.getByRole('button', { name: '结构对照', exact: true }).click();
   await expect(page.getByTestId('after-tree')).toContainText('合作方案.pdf');
   await shot('08-应用前预览.png');

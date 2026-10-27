@@ -115,15 +115,11 @@ function Tile({
       className={`canvas-card tile ${folder ? 'is-folder' : ''} ${p.className}`}
     >
       <span className="card-type" title={folder ? '文件夹' : fileInfo(node.name).description}>
-        {node.reviewDelete
-          ? '待删除候选 · 未删除'
-          : folder
-            ? '文件夹'
-            : fileInfo(node.name).description}
+        {node.reviewDelete ? '待删除候选 · 未删除' : folder ? '' : fileInfo(node.name).shortLabel}
       </span>
       {badge && <span className="pending-badge card-pending">{badge}</span>}
       {folder ? (
-        <FolderVisual summary={summary} />
+        <FolderVisual summary={summary} name={node.name} />
       ) : (
         <CardVisual node={node} previews={previews && near} />
       )}
