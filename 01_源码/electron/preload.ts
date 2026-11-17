@@ -10,7 +10,7 @@ const api: FileCanvasApi = {
     ipcRenderer.on('fc:operation-progress', listener);
     return () => ipcRenderer.removeListener('fc:operation-progress', listener);
   },
-  undoDisk: (projectId) => ipcRenderer.invoke('fc:undo-disk', projectId),
+  undoDisk: (projectId, current) => ipcRenderer.invoke('fc:undo-disk', projectId, current),
   diskUndoAvailable: (projectId) => ipcRenderer.invoke('fc:disk-undo-available', projectId),
   openFile: (path) => ipcRenderer.invoke('fc:open-file', path),
   revealFile: (path) => ipcRenderer.invoke('fc:reveal-file', path),
@@ -48,6 +48,8 @@ const api: FileCanvasApi = {
   saveRules: (rules) => ipcRenderer.invoke('fc:rules-save', rules),
   loadPreferences: () => ipcRenderer.invoke('fc:prefs-load'),
   savePreferences: (preferences) => ipcRenderer.invoke('fc:prefs-save', preferences),
+  groupFiles: (files) => ipcRenderer.invoke('fc:group-files', files),
+  exportGroup: (project, id) => ipcRenderer.invoke('fc:export-group', project, id),
   exportPlan: (project) => ipcRenderer.invoke('fc:export-plan', project),
   revealExport: () => ipcRenderer.invoke('fc:reveal-export'),
   revealRoot: () => ipcRenderer.invoke('fc:reveal-root'),

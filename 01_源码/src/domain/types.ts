@@ -20,12 +20,18 @@ export interface CanvasNode {
   reviewDelete?: boolean;
 }
 export type NodeMap = Record<string, CanvasNode>;
+export interface CanvasGroup {
+  id: string;
+  name: string;
+  files: string[];
+}
 export interface Project {
   version: 1;
   id: string;
   rootPath: string;
   name: string;
   nodes: NodeMap;
+  canvasGroups?: CanvasGroup[];
   createdAt: string;
   updatedAt: string;
   demo?: { scenario: 'content-project' | 'expanded-flow'; fixtureVersion: 1 };
@@ -38,6 +44,7 @@ export interface Project {
 }
 export interface Snapshot {
   nodes: NodeMap;
+  canvasGroups?: CanvasGroup[];
   label: string;
 }
 export interface Workspace {
@@ -185,7 +192,7 @@ export interface FileCanvasApi {
     project: Project,
     planId: string,
   ): Promise<ApiResult<{ project: Project; moved: number; message: string }>>;
-  undoDisk(projectId: string): Promise<ApiResult<Project>>;
+  undoDisk(projectId: string, current?: Project): Promise<ApiResult<Project>>;
   diskUndoAvailable(projectId: string): Promise<ApiResult<boolean>>;
   operationStatus(projectId: string): Promise<ApiResult<OperationStatus | null>>;
   prepareRefresh(project: Project): Promise<ApiResult<RefreshReview>>;
@@ -229,6 +236,8 @@ export interface FileCanvasApi {
   search(query: string): Promise<ApiResult<{ entries: SourceEntry[]; truncated: boolean }>>;
   importPaths(paths: string[]): Promise<ApiResult<ImportEntry[]>>;
   save(project: Project): Promise<ApiResult<string>>;
+  groupFiles(paths: string[]): Promise<ApiResult<string[]>>;
+  exportGroup(project: Project, id: string): Promise<ApiResult<{ path: string } | null>>;
   projects(): Promise<ApiResult<ProjectRecord[]>>;
   load(id: string): Promise<ApiResult<Project>>;
   restore(): Promise<ApiResult<Project | null>>;

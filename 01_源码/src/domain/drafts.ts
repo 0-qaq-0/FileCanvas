@@ -195,7 +195,14 @@ export function buildClassificationDraft(
     const next = rows.length
       ? {
           project: candidate.project,
-          past: [...state.past.slice(-79), { nodes: state.project.nodes, label: '采用分类草案' }],
+          past: [
+            ...state.past.slice(-79),
+            {
+              nodes: state.project.nodes,
+              canvasGroups: state.project.canvasGroups,
+              label: '采用分类草案',
+            },
+          ],
           future: [],
         }
       : state;

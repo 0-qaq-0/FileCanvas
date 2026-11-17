@@ -12,7 +12,7 @@ import {
   Search,
   X,
 } from 'lucide-react';
-import type { CanvasNode, FileContent, NodeMap } from '../domain/types';
+import type { CanvasGroup, CanvasNode, FileContent, NodeMap } from '../domain/types';
 import {
   children,
   relativeTarget,
@@ -36,6 +36,7 @@ import type { FilterResult } from '../domain/filter';
 import type { MenuItem } from './ContextMenu';
 import { ICON_SCALE_STEP } from '../domain/preferences';
 import { FileIcon } from './FileIcon';
+import { CanvasGroups } from './CanvasGroups';
 import { FileFacts, FolderVisual } from './FileFacts';
 import { fileInfo, summarizeFolders, folderDescription, folderSize } from '../domain/file-info';
 interface Props {
@@ -44,6 +45,11 @@ interface Props {
   onExpandedChange?(ids: string[]): void;
   autoExpand?: boolean;
   nodes: NodeMap;
+  groups: CanvasGroup[];
+  onGroupDrop(id: string, ids: string[], paths: string[]): void;
+  onGroupExport(id: string): void;
+  onGroupRemove(id: string, file?: string): void;
+  onGroupOpen(file: string): void;
   parentId: string | null;
   selected: string[];
   highlighted?: string | null;
@@ -152,6 +158,7 @@ export function Canvas(props: Props) {
     [dragCount, setDragCount] = useState(0),
     // Most recently put-down cards, so a pile keeps the last one on top (not saved).
     [raised, setRaised] = useState<string[]>([]);
+  const [groupHover, setGroupHover] = useState<string | null>(null);
   const rank = useMemo(() => new Map(raised.map((id, i) => [id, i + 1])), [raised]);
   function raise(ids: string[]) {
     setRaised((old) => [...old.filter((id) => !ids.includes(id)), ...ids].slice(-90));
@@ -331,6 +338,13 @@ export function Canvas(props: Props) {
   function targetAt(p: { x: number; y: number }, ids: string[]) {
     return folderAt(nodes, layout, p, ids) ?? parentId;
   }
+  function groupAt(event: { clientX: number; clientY: number }) {
+    if (!props.groups.length) return null;
+    const group = document
+      .elementFromPoint(event.clientX, event.clientY)
+      ?.closest<HTMLElement>('[data-canvas-group]');
+    return group && container.current?.contains(group) ? (group.dataset.canvasGroup ?? null) : null;
+  }
   function trackHover(id: string | null) {
     setHover(id);
     if (hoverId.current === id) return;
@@ -377,7 +391,9 @@ export function Canvas(props: Props) {
           ]),
         ),
       );
-      trackHover(destination);
+      const group = groupAt(event);
+      setGroupHover(group);
+      trackHover(group ? null : destination);
     } else {
       const rect = {
         x: Math.min(g.x, p.x),
@@ -415,40 +431,9 @@ export function Canvas(props: Props) {
       canceled = true;
     const g = gesture.current;
     if (g && !canceled && g.type === 'cards' && g.moved) {
-      const p = point(event),
-        destination = targetAt(p, g.ids);
-      if (destination === parentId) {
-        // Put down on the layer: every item stays exactly where it was released.
-        const shift = shiftFor(g, p.x - g.startX, p.y - g.startY, shouldSnap(event, destination));
-        const positions: Positions = Object.fromEntries(
-          g.ids.map((id) => [
-            id,
-            { x: clampCoord(g.origins[id].x + shift.x), y: clampCoord(g.origins[id].y + shift.y) },
-          ]),
-        );
-        raise(g.ids);
-        if (g.ids.every((id) => nodes[id].parentId === destination)) onLayout(positions);
-        else onMove(g.ids, destination, positions);
-      } else if (g.ids.some((id) => nodes[id].parentId !== destination)) onMove(g.ids, destination);
-      else {
-        // Reordering inside an open folder: its files flow in order, so only the order changes.
-        const peers = layout
-          .filter((r) => nodes[r.id].parentId === destination && !g.ids.includes(r.id))
-          .sort((a, b) => a.y - b.y || a.x - b.x);
-        let index = peers.findIndex((r) => p.y < r.y + r.height / 2 && p.x < r.x + r.width);
-        if (index < 0) index = peers.length;
-        const order = peers.map((r) => r.id);
-        order.splice(index, 0, ...g.ids);
-        const columns = Math.max(5, Math.ceil(order.length / 300));
-        onLayout(
-          Object.fromEntries(
-            order.map((id, i) => [
-              id,
-              { x: 32 + (i % columns) * GRID_STEP, y: 32 + Math.floor(i / columns) * GRID_STEP },
-            ]),
-          ),
-        );
-      }
+      const group = groupAt(event);
+      if (group) props.onGroupDrop(group, g.ids, []);
+      else placeCards(event, g);
     }
     gesture.current = null;
     setDraft({});
@@ -456,10 +441,47 @@ export function Canvas(props: Props) {
     setDragCount(0);
     setBox(null);
     setHover(undefined);
+    setGroupHover(null);
     hoverId.current = null;
     if (hoverTimer.current) clearTimeout(hoverTimer.current);
     if (surface.current?.hasPointerCapture(event.pointerId))
       surface.current.releasePointerCapture(event.pointerId);
+  }
+  function placeCards(event: React.PointerEvent, g: CardsGesture) {
+    const p = point(event),
+      destination = targetAt(p, g.ids);
+    if (destination === parentId) {
+      // Put down on the layer: every item stays exactly where it was released.
+      const shift = shiftFor(g, p.x - g.startX, p.y - g.startY, shouldSnap(event, destination));
+      const positions: Positions = Object.fromEntries(
+        g.ids.map((id) => [
+          id,
+          { x: clampCoord(g.origins[id].x + shift.x), y: clampCoord(g.origins[id].y + shift.y) },
+        ]),
+      );
+      raise(g.ids);
+      if (g.ids.every((id) => nodes[id].parentId === destination)) onLayout(positions);
+      else onMove(g.ids, destination, positions);
+    } else if (g.ids.some((id) => nodes[id].parentId !== destination)) onMove(g.ids, destination);
+    else {
+      // Reordering inside an open folder: its files flow in order, so only the order changes.
+      const peers = layout
+        .filter((r) => nodes[r.id].parentId === destination && !g.ids.includes(r.id))
+        .sort((a, b) => a.y - b.y || a.x - b.x);
+      let index = peers.findIndex((r) => p.y < r.y + r.height / 2 && p.x < r.x + r.width);
+      if (index < 0) index = peers.length;
+      const order = peers.map((r) => r.id);
+      order.splice(index, 0, ...g.ids);
+      const columns = Math.max(5, Math.ceil(order.length / 300));
+      onLayout(
+        Object.fromEntries(
+          order.map((id, i) => [
+            id,
+            { x: 32 + (i % columns) * GRID_STEP, y: 32 + Math.floor(i / columns) * GRID_STEP },
+          ]),
+        ),
+      );
+    }
   }
   // Tidies this layer only. With a selection just those items are packed, starting from the
   // top-left of where they were; otherwise everything is. One undo step restores the old spots.
@@ -642,7 +664,10 @@ export function Canvas(props: Props) {
         className={`canvas-scroll ${dragOver ? 'external-drag' : ''}`}
         tabIndex={0}
         onContextMenu={(e) => {
-          if ((e.target as HTMLElement).closest('[data-node-id], button, input')) return;
+          if (
+            (e.target as HTMLElement).closest('[data-node-id], [data-canvas-group], button, input')
+          )
+            return;
           e.preventDefault();
           e.stopPropagation();
           props.onBackgroundMenu(e.clientX, e.clientY, backgroundItems());
@@ -665,19 +690,21 @@ export function Canvas(props: Props) {
             )
           ) {
             e.preventDefault();
-            e.dataTransfer.dropEffect = e.dataTransfer.types.includes(
-              'application/x-filecanvas-nodes',
-            )
-              ? 'move'
-              : 'copy';
+            const group = groupAt(e);
+            e.dataTransfer.dropEffect =
+              !group && e.dataTransfer.types.includes('application/x-filecanvas-nodes')
+                ? 'move'
+                : 'copy';
             setDragOver(true);
-            trackHover(targetAt(point(e), externalIds(e)));
+            setGroupHover(group);
+            trackHover(group ? null : targetAt(point(e), externalIds(e)));
           }
         }}
         onDragLeave={(e) => {
           if (!e.currentTarget.contains(e.relatedTarget as Node)) {
             setDragOver(false);
             setHover(undefined);
+            setGroupHover(null);
             hoverId.current = null;
             if (hoverTimer.current) clearTimeout(hoverTimer.current);
           }
@@ -686,10 +713,20 @@ export function Canvas(props: Props) {
           e.preventDefault();
           setDragOver(false);
           setHover(undefined);
+          setGroupHover(null);
           hoverId.current = null;
           if (hoverTimer.current) clearTimeout(hoverTimer.current);
-          const ids = externalIds(e),
-            p = point(e),
+          const group = groupAt(e);
+          const ids = externalIds(e);
+          if (group) {
+            let files: string[] = [];
+            try {
+              files = JSON.parse(e.dataTransfer.getData('application/x-filecanvas-source') || '[]');
+            } catch {}
+            props.onGroupDrop(group, ids, files);
+            return;
+          }
+          const p = point(e),
             dest = targetAt(p, ids),
             // Dropped on this layer, the files land where the pointer was released.
             place = dest === parentId;
@@ -722,6 +759,13 @@ export function Canvas(props: Props) {
           } catch {}
         }}
       >
+        <CanvasGroups
+          groups={props.groups}
+          dropTarget={groupHover}
+          onOpen={props.onGroupOpen}
+          onExport={props.onGroupExport}
+          onRemove={props.onGroupRemove}
+        />
         {/* The wrapper takes the scaled size so the scroll area matches what is painted; clip
             (not hidden) keeps it from becoming the scroller of the sticky drop hint. */}
         <div

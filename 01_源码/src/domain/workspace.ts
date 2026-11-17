@@ -1,4 +1,4 @@
-import type { CanvasNode, ImportEntry, NodeMap, Project, Workspace } from './types';
+import type { CanvasGroup, CanvasNode, ImportEntry, NodeMap, Project, Workspace } from './types';
 
 export const MAX_NODES = 5000;
 export function validateName(name: string): void {
@@ -88,6 +88,7 @@ export function validateProject(project: Project): void {
   )
     throw new Error('不是有效的 FileCanvas 项目。');
   validateNodes(project.nodes);
+  validateCanvasGroups(project.canvasGroups);
   if (project.view) {
     const view = project.view;
     if (
@@ -108,6 +109,75 @@ export function validateProject(project: Project): void {
 export function workspace(project: Project): Workspace {
   return { project, past: [], future: [] };
 }
+function validateCanvasGroups(groups: CanvasGroup[] | undefined) {
+  if (groups === undefined) return;
+  if (!Array.isArray(groups) || groups.length > MAX_NODES) throw new Error('画布分组数量无效。');
+  const ids = new Set<string>();
+  let total = 0;
+  for (const group of groups) {
+    if (
+      !group ||
+      typeof group.id !== 'string' ||
+      !/^[a-zA-Z0-9-]{1,100}$/.test(group.id) ||
+      ids.has(group.id) ||
+      typeof group.name !== 'string' ||
+      !Array.isArray(group.files)
+    )
+      throw new Error('画布分组内容无效。');
+    validateName(group.name);
+    ids.add(group.id);
+    total += group.files.length;
+    if (total > MAX_NODES) throw new Error(`画布分组最多保存 ${MAX_NODES} 个文件关联。`);
+    const paths = new Set<string>();
+    for (const file of group.files) {
+      if (typeof file !== 'string' || !file || file.includes('\0') || paths.has(file.toLowerCase()))
+        throw new Error('画布分组的文件路径无效。');
+      paths.add(file.toLowerCase());
+    }
+  }
+}
+
+function canvasSnapshot(project: Project, label: string) {
+  return { nodes: project.nodes, canvasGroups: project.canvasGroups, label };
+}
+
+function commitCanvas(state: Workspace, label: string, changes: Partial<Project>): Workspace {
+  return {
+    project: { ...state.project, ...changes, updatedAt: new Date().toISOString() },
+    past: [...state.past.slice(-79), canvasSnapshot(state.project, label)],
+    future: [],
+  };
+}
+
+export function editCanvasGroups(
+  state: Workspace,
+  label: string,
+  update: (groups: CanvasGroup[]) => CanvasGroup[],
+): Workspace {
+  const previous = state.project.canvasGroups ?? [];
+  const canvasGroups = update(previous);
+  if (JSON.stringify(canvasGroups) === JSON.stringify(previous)) return state;
+  validateCanvasGroups(canvasGroups);
+  return commitCanvas(state, label, { canvasGroups });
+}
+
+export function uniqueGroupFiles(files: string[]): string[] {
+  const seen = new Set<string>();
+  return files.filter((file) => {
+    const key = file.toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+export function remapCanvasGroups(groups: CanvasGroup[] | undefined, paths: Map<string, string>) {
+  return groups?.map((group) => ({
+    ...group,
+    files: uniqueGroupFiles(group.files.map((file) => paths.get(file.toLowerCase()) ?? file)),
+  }));
+}
+
 export function commit(
   state: Workspace,
   label: string,
@@ -117,27 +187,33 @@ export function commit(
   update(nodes);
   validateNodes(nodes);
   if (JSON.stringify(nodes) === JSON.stringify(state.project.nodes)) return state;
-  return {
-    project: { ...state.project, nodes, updatedAt: new Date().toISOString() },
-    past: [...state.past.slice(-79), { nodes: state.project.nodes, label }],
-    future: [],
-  };
+  return commitCanvas(state, label, { nodes });
 }
 export function undo(state: Workspace): Workspace {
   const last = state.past.at(-1);
   if (!last) return state;
   return {
-    project: { ...state.project, nodes: last.nodes, updatedAt: new Date().toISOString() },
+    project: {
+      ...state.project,
+      nodes: last.nodes,
+      canvasGroups: last.canvasGroups,
+      updatedAt: new Date().toISOString(),
+    },
     past: state.past.slice(0, -1),
-    future: [...state.future, { nodes: state.project.nodes, label: last.label }],
+    future: [...state.future, canvasSnapshot(state.project, last.label)],
   };
 }
 export function redo(state: Workspace): Workspace {
   const last = state.future.at(-1);
   if (!last) return state;
   return {
-    project: { ...state.project, nodes: last.nodes, updatedAt: new Date().toISOString() },
-    past: [...state.past, { nodes: state.project.nodes, label: last.label }],
+    project: {
+      ...state.project,
+      nodes: last.nodes,
+      canvasGroups: last.canvasGroups,
+      updatedAt: new Date().toISOString(),
+    },
+    past: [...state.past, canvasSnapshot(state.project, last.label)],
     future: state.future.slice(0, -1),
   };
 }

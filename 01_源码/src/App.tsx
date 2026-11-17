@@ -52,6 +52,9 @@ import type {
 import {
   addFolder,
   commit,
+  editCanvasGroups,
+  uniqueGroupFiles,
+  validateName,
   importEntries,
   moveNodes,
   redo,
@@ -127,10 +130,12 @@ export default function App() {
   const saveCounter = useRef(0);
   const [toast, setToast] = useState('');
   const [busy, setBusy] = useState(false);
+  const [busyMessage, setBusyMessage] = useState('');
   const operationBusy = useRef(false);
   const [starting, setStarting] = useState(true);
   const [dialog, setDialog] = useState<
     | 'create'
+    | 'canvas-group'
     | 'collect'
     | 'batch'
     | 'rename'
@@ -411,9 +416,10 @@ export default function App() {
       document.removeEventListener('keydown', dismiss);
     };
   }, []);
-  async function run(task: () => Promise<void>) {
+  async function run(task: () => Promise<void>, message = '') {
     if (operationBusy.current) return;
     operationBusy.current = true;
+    setBusyMessage(message);
     setBusy(true);
     setProblem('');
     try {
@@ -591,6 +597,56 @@ export default function App() {
   function openCreate() {
     openCreateIn(parentId);
   }
+  function openCanvasGroup() {
+    setName('');
+    setNameError('');
+    setDialog('canvas-group');
+  }
+  function selectedFiles(nodes: NodeMap, ids: string[]) {
+    return ids.flatMap((id) => {
+      const node = nodes[id];
+      return node?.kind === 'file' && node.source ? [node.source.path] : [];
+    });
+  }
+  function addToCanvasGroup(groupId: string, ids: string[], paths: string[]) {
+    const addFiles = (state: Workspace, files: string[]) => {
+      if (!files.length) throw new Error('请展开文件夹，把里面的文件拖进分组。');
+      return editCanvasGroups(state, '加入画布分组', (groups) =>
+        groups.map((group) =>
+          group.id === groupId
+            ? { ...group, files: uniqueGroupFiles([...group.files, ...files]) }
+            : group,
+        ),
+      );
+    };
+    if (paths.length) {
+      void run(async () => {
+        const files = unwrap(await window.fileCanvas.groupFiles(paths));
+        replace(addFiles(current.current!, files));
+      });
+    } else edit((state) => addFiles(state, selectedFiles(state.project.nodes, ids)));
+  }
+  function removeFromCanvasGroup(groupId: string, file?: string) {
+    edit((state) =>
+      editCanvasGroups(state, file ? '移出画布分组' : '移除画布分组', (groups) =>
+        file
+          ? groups.map((group) =>
+              group.id === groupId
+                ? { ...group, files: group.files.filter((item) => item !== file) }
+                : group,
+            )
+          : groups.filter((group) => group.id !== groupId),
+      ),
+    );
+  }
+  function exportCanvasGroup(id: string) {
+    void run(async () => {
+      const project = current.current!.project;
+      await persist(project);
+      const result = unwrap(await window.fileCanvas.exportGroup(project, id));
+      if (result) notify(`压缩包已保存到 ${result.path}`);
+    }, '正在打包分组…');
+  }
   function openCollect() {
     const nodes = current.current?.project.nodes;
     if (!nodes || !selected.length) return;
@@ -609,6 +665,17 @@ export default function App() {
     event.preventDefault();
     if (!current.current) return;
     try {
+      if (dialog === 'canvas-group') {
+        const groupName = name.trim();
+        validateName(groupName);
+        const files = selectedFiles(current.current.project.nodes, selected);
+        const group = { id: crypto.randomUUID(), name: groupName, files };
+        replace(editCanvasGroups(current.current, '新建画布分组', (groups) => [...groups, group]));
+        if (prefs.viewMode !== 'canvas') updatePrefs({ viewMode: 'canvas' });
+        setSelected([]);
+        setDialog(null);
+        return;
+      }
       if (dialog === 'collect') {
         const folderId = crypto.randomUUID();
         const count = selected.length;
@@ -646,16 +713,18 @@ export default function App() {
   }
   function openFile(id: string) {
     const source = current.current?.project.nodes[id]?.source;
-    if (source)
-      void run(async () => {
-        const result = unwrap(await window.fileCanvas.openFile(source.path));
-        if (result.opened)
-          notify(
-            result.method === 'text-editor'
-              ? '已用文本编辑器打开；返回后会刷新预览。'
-              : '已用系统默认应用打开；返回后会刷新预览。',
-          );
-      });
+    if (source) openSource(source.path);
+  }
+  function openSource(file: string) {
+    void run(async () => {
+      const result = unwrap(await window.fileCanvas.openFile(file));
+      if (result.opened)
+        notify(
+          result.method === 'text-editor'
+            ? '已用文本编辑器打开；返回后会刷新预览。'
+            : '已用系统默认应用打开；返回后会刷新预览。',
+        );
+    });
   }
   function revealFile(id: string) {
     const source = current.current?.project.nodes[id]?.source;
@@ -678,6 +747,7 @@ export default function App() {
   function backgroundItems(extras: MenuItem[]): MenuItem[] {
     return [
       { label: '新建文件夹', icon: <FolderPlus size={14} />, onClick: openCreate },
+      { label: '新建分组', icon: <Layers3 size={14} />, onClick: openCanvasGroup },
       ...extras.map((item, index) => ({ ...item, group: index === 0 || item.group })),
       {
         label: '撤销未应用的修改',
@@ -741,6 +811,12 @@ export default function App() {
       });
     items.push(
       {
+        label: '新建分组',
+        icon: <Layers3 size={14} />,
+        disabled: !(node.kind === 'file' || (many && selectedFiles(nodes, selected).length)),
+        onClick: openCanvasGroup,
+      },
+      {
         label: '移动到…',
         icon: <MoveRight size={14} />,
         onClick: () => setDialog('move'),
@@ -796,8 +872,9 @@ export default function App() {
   }
   function revertDisk() {
     void run(async () => {
+      const currentProject = current.current!.project;
       const project = unwrap(
-        await window.fileCanvas.undoDisk(operation?.projectId ?? current.current!.project.id),
+        await window.fileCanvas.undoDisk(operation?.projectId ?? currentProject.id, currentProject),
       );
       replace(workspace(project));
       enter(null);
@@ -1231,6 +1308,11 @@ export default function App() {
               <Canvas
                 key={`${state.project.id}-${parentId ?? 'root'}-${canvasRevision}`}
                 nodes={nodes}
+                groups={state.project.canvasGroups ?? []}
+                onGroupDrop={addToCanvasGroup}
+                onGroupOpen={openSource}
+                onGroupExport={exportCanvasGroup}
+                onGroupRemove={removeFromCanvasGroup}
                 rootPath={state.project.rootPath}
                 initialExpanded={state.project.view?.expandedIds}
                 onExpandedChange={(expandedIds) => updateView({ expandedIds })}
@@ -1566,25 +1648,32 @@ export default function App() {
               ? '正在恢复项目…'
               : progress
                 ? `${progress.phase} · ${progress.completed}/${progress.total}`
-                : '正在读取与检查…'}
+                : busyMessage || '正在读取与检查…'}
           </div>
         </div>
       )}
-      {(dialog === 'create' || dialog === 'collect' || dialog === 'rename') && (
+      {(dialog === 'create' ||
+        dialog === 'collect' ||
+        dialog === 'canvas-group' ||
+        dialog === 'rename') && (
         <Modal
           title={
-            dialog === 'create'
-              ? '新建虚拟文件夹'
-              : dialog === 'collect'
-                ? `把 ${selected.length} 项移入新文件夹`
-                : '重命名虚拟条目'
+            dialog === 'canvas-group'
+              ? '新建分组'
+              : dialog === 'create'
+                ? '新建虚拟文件夹'
+                : dialog === 'collect'
+                  ? `把 ${selected.length} 项移入新文件夹`
+                  : '重命名虚拟条目'
           }
           subtitle={
-            dialog === 'create'
-              ? `将在“${createParentId ? nodes[createParentId]?.name : state?.project.name}”中新建，仅修改整理计划。`
-              : dialog === 'collect'
-                ? '新文件夹建在选中项所在的位置；仅修改虚拟整理项目，原始文件不会改变。'
-                : '仅修改虚拟整理项目，原始文件不会改变。'
+            dialog === 'canvas-group'
+              ? '分组保存在画布里，原文件留在原处。'
+              : dialog === 'create'
+                ? `将在“${createParentId ? nodes[createParentId]?.name : state?.project.name}”中新建，仅修改整理计划。`
+                : dialog === 'collect'
+                  ? '新文件夹建在选中项所在的位置；仅修改虚拟整理项目，原始文件不会改变。'
+                  : '仅修改虚拟整理项目，原始文件不会改变。'
           }
           onClose={() => setDialog(null)}
         >
@@ -1595,6 +1684,7 @@ export default function App() {
                 autoFocus
                 aria-label="名称"
                 maxLength={200}
+                placeholder={dialog === 'canvas-group' ? '例如 发给老师' : undefined}
                 value={name}
                 onFocus={(event) => event.target.select()}
                 onChange={(e) => {

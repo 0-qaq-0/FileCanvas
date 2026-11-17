@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import type { BigIntStats } from 'node:fs';
 import { checkPath, noLinks, readEntry, fileId } from './filesystem';
-import { relativeTarget } from '../src/domain/workspace';
+import { relativeTarget, remapCanvasGroups } from '../src/domain/workspace';
 import type { Project, NodeMap } from '../src/domain/types';
 
 export interface Fingerprint {
@@ -182,6 +182,7 @@ export async function originalProject(project: Project): Promise<Project> {
 }
 export async function rebase(project: Project, original = false): Promise<Project> {
   const nodes: NodeMap = {};
+  const moved = new Map<string, string>();
   const paths = new Map(
     Object.values(project.nodes).map((n) => [
       n.id,
@@ -192,6 +193,8 @@ export async function rebase(project: Project, original = false): Promise<Projec
   );
   for (const node of Object.values(project.nodes)) {
     const source = await readEntry(project.rootPath, paths.get(node.id)!);
+    if (node.kind === 'file' && node.source && node.source.path !== source.path)
+      moved.set(node.source.path.toLowerCase(), source.path);
     const id = fileId(source.path);
     nodes[id] = {
       ...node,
@@ -201,5 +204,10 @@ export async function rebase(project: Project, original = false): Promise<Projec
       parentId: node.parentId ? fileId(paths.get(node.parentId)!) : null,
     };
   }
-  return { ...project, nodes, updatedAt: new Date().toISOString() };
+  return {
+    ...project,
+    nodes,
+    canvasGroups: remapCanvasGroups(project.canvasGroups, moved),
+    updatedAt: new Date().toISOString(),
+  };
 }

@@ -21,7 +21,14 @@ import {
   writeAtomic,
 } from './operation-plan';
 import type { Fingerprint, Inventory } from './operation-plan';
-import type { Project, Preview, OperationStatus, OperationProgress } from '../src/domain/types';
+import { remapCanvasGroups } from '../src/domain/workspace';
+import type {
+  CanvasGroup,
+  Project,
+  Preview,
+  OperationStatus,
+  OperationProgress,
+} from '../src/domain/types';
 
 interface FileMove {
   source: string;
@@ -700,13 +707,17 @@ export class DiskOperations {
       this.running = false;
     }
   }
-  async undo(root: string, projectId: string): Promise<Project> {
+  async undo(root: string, projectId: string, groups?: CanvasGroup[]): Promise<Project> {
     if (this.running) throw new Error('正在执行文件操作，请稍候。');
     this.running = true;
     try {
       const j = await this.load(root, projectId);
       if (!j || !(j.status === 'applied' || recoverable.includes(j.status)))
         throw new Error('没有可恢复的磁盘整理记录。');
+      if (j.status === 'applied' && groups) {
+        const previousPaths = new Map(j.moves.map(({ target, source }) => [lower(target), source]));
+        j.before.canvasGroups = remapCanvasGroups(groups, previousPaths);
+      }
       try {
         return await this.restore(j, 'undone');
       } catch (e) {

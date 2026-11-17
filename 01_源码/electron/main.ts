@@ -27,6 +27,7 @@ import { markdownPlan } from '../src/domain/plan-report';
 import type { KnownFolder, Project } from '../src/domain/types';
 import { AiService } from './ai';
 import { readContent } from './content';
+import { resolveGroupFiles, writeGroupZip } from './group-archive';
 import { DiskOperations } from './disk-operations';
 import { createFlowDemo } from './flow-demo';
 import { prepareRefresh } from './refresh';
@@ -388,10 +389,14 @@ app.whenReady().then(async () => {
       return result;
     }),
   );
-  handle('fc:undo-disk', (projectId) =>
+  handle('fc:undo-disk', (projectId, current?: Project) =>
     diskTask(async () => {
       await storage.flush();
-      const project = await disk.undo(root(), projectId);
+      if (current) {
+        validateAuthorized(current, root());
+        if (current.id !== projectId) throw new Error('只能恢复当前项目的磁盘整理。');
+      }
+      const project = await disk.undo(root(), projectId, current?.canvasGroups);
       await storage.save(project);
       await disk.acknowledge(root(), projectId);
       ai.invalidate(root());
@@ -428,6 +433,27 @@ app.whenReady().then(async () => {
     await storage.save(populated);
     return activate(populated);
   });
+  handle('fc:group-files', async (files: string[]) =>
+    (await resolveGroupFiles(root(), files)).map((entry) => entry.path),
+  );
+  handle('fc:export-group', (project: Project, id: string) =>
+    diskTask(async () => {
+      const projectRoot = root();
+      validateAuthorized(project, projectRoot);
+      const group = project.canvasGroups?.find((item) => item.id === id);
+      if (!group?.files.length) throw new Error('请先向分组添加文件。');
+      const result = await dialog.showSaveDialog(mainWindow, {
+        title: '打包画布分组',
+        defaultPath: `${group.name}.zip`,
+        filters: [{ name: 'ZIP 压缩包', extensions: ['zip'] }],
+      });
+      if (result.canceled || !result.filePath) return null;
+      const destination = /\.zip$/i.test(result.filePath)
+        ? result.filePath
+        : `${result.filePath}.zip`;
+      return { path: await writeGroupZip(projectRoot, group.files, destination) };
+    }),
+  );
   handle('fc:export-plan', async (project: Project) => {
     const preview = await disk.preview(root(), project);
     const directory = path.join(app.getPath('userData'), 'exports');

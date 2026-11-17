@@ -180,6 +180,9 @@ export function validateAuthorized(project: Project, root: string): void {
   validateProject(project);
   checkPath(root, root);
   if (project.rootPath !== root) throw new Error('项目根目录未经授权。请重新打开项目。');
+  for (const group of project.canvasGroups ?? []) {
+    for (const file of group.files) checkPath(root, file);
+  }
   for (const node of Object.values(project.nodes)) {
     if (node.source) {
       const source = checkPath(root, node.source.path);

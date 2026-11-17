@@ -1,0 +1,72 @@
+.canvas-group-strip {
+  position: sticky;
+  top: 0;
+  left: 0;
+  z-index: 4;
+  display: flex;
+  gap: 10px;
+  padding: 10px 12px;
+  overflow-x: auto;
+  background: var(--fc-paper);
+}
+
+.canvas-group {
+  flex: 0 0 min(236px, 75%);
+  min-width: 0;
+  align-self: start;
+  padding: 8px;
+  border: 1px dashed var(--fc-line-strong);
+  border-radius: var(--fc-radius);
+  background: var(--fc-surface);
+}
+
+.canvas-group-hover {
+  border-color: var(--fc-brand);
+  box-shadow: inset 0 0 0 1px var(--fc-brand);
+}
+
+.canvas-group-header,
+.canvas-group-files li {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.canvas-group-header h3,
+.canvas-group-file {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.canvas-group-header h3 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.canvas-group .icon-button {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+}
+
+.canvas-group-files {
+  max-height: 110px;
+  overflow-y: auto;
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.canvas-group-files .canvas-group-file {
+  display: block;
+  text-align: left;
+}
+
+.canvas-group p {
+  margin: 8px 2px 2px;
+  color: var(--fc-muted);
+  font-size: 12px;
+}
