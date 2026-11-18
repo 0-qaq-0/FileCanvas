@@ -1,9 +1,9 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 export default defineConfig({
-  root: '01_源码',
+  root: 'app',
   base: './',
-  build: { outDir: '../06_构建产物/renderer', emptyOutDir: true },
+  build: { outDir: '../dist/renderer', emptyOutDir: true },
   plugins: [
     react(),
     {

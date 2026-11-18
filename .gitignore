@@ -1,7 +1,7 @@
 node_modules/
-06_构建产物/
-07_发布成品/
-03_测试结果/
+dist/
+release/
+test-results/
 *.log
 coverage/
-09_源码交付/
+source-zip/

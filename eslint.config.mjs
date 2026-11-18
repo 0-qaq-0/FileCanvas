@@ -4,7 +4,7 @@ import reactHooks from 'eslint-plugin-react-hooks';
 import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
-  { ignores: ['node_modules/', '03_测试结果/', '06_构建产物/', '07_发布成品/', '09_源码交付/'] },
+  { ignores: ['node_modules/', 'test-results/', 'dist/', 'release/', 'source-zip/'] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
@@ -28,7 +28,7 @@ export default tseslint.config(
     },
   },
   {
-    files: ['01_源码/src/**/*.{ts,tsx}'],
+    files: ['app/src/**/*.{ts,tsx}'],
     languageOptions: { globals: { ...globals.browser } },
     plugins: { 'react-hooks': reactHooks },
     rules: {
@@ -39,7 +39,7 @@ export default tseslint.config(
     },
   },
   {
-    files: ['02_测试/**/*.{mjs,cjs}', '04_构建脚本/**/*.mjs'],
+    files: ['tests/**/*.{mjs,cjs}', 'scripts/**/*.mjs'],
     languageOptions: { globals: { ...globals.browser, ...globals.node } },
     rules: { '@typescript-eslint/no-require-imports': 'off' },
   },

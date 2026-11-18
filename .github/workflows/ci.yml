@@ -33,5 +33,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: desktop-results
-          path: 03_测试结果/
+          path: test-results/
           if-no-files-found: ignore
