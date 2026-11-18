@@ -255,7 +255,17 @@ export interface FileCanvasApi {
   importPaths(paths: string[], room?: number): Promise<ApiResult<ImportSummary>>;
   save(project: Project): Promise<ApiResult<string>>;
   groupFiles(paths: string[]): Promise<ApiResult<string[]>>;
-  exportGroup(project: Project, id: string): Promise<ApiResult<{ path: string } | null>>;
+  exportGroup(
+    project: Project,
+    id: string,
+  ): Promise<ApiResult<{ path: string; missing: string[] } | null>>;
+  copyGroup(
+    project: Project,
+    id: string,
+  ): Promise<
+    ApiResult<{ folder: string; copied: number; missing: string[]; failed: string[] } | null>
+  >;
+  missingGroupFiles(files: string[]): Promise<ApiResult<string[]>>;
   projects(): Promise<ApiResult<ProjectRecord[]>>;
   // Forgets a saved project. Its folder and files are not touched.
   deleteProject(id: string): Promise<ApiResult<boolean>>;

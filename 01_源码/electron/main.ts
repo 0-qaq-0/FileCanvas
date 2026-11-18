@@ -28,7 +28,12 @@ import { comparisonImageName } from '../src/domain/comparison';
 import type { KnownFolder, Project } from '../src/domain/types';
 import { AiService } from './ai';
 import { readContent } from './content';
-import { resolveGroupFiles, writeGroupZip } from './group-archive';
+import {
+  availableGroupFiles,
+  copyGroupFiles,
+  resolveGroupFiles,
+  writeGroupZip,
+} from './group-archive';
 import { DiskOperations } from './disk-operations';
 import { createFlowDemo } from './flow-demo';
 import { prepareRefresh } from './refresh';
@@ -545,14 +550,33 @@ app.whenReady().then(async () => {
   handle('fc:group-files', async (files: string[]) =>
     (await resolveGroupFiles(root(), files)).map((entry) => entry.path),
   );
+  handle('fc:missing-group-files', async (files: string[]) =>
+    files.length ? (await availableGroupFiles(root(), files)).missing : [],
+  );
+  const authorizedGroup = (project: Project, id: string) => {
+    const projectRoot = root();
+    validateAuthorized(project, projectRoot);
+    const group = project.canvasGroups?.find((item) => item.id === id);
+    if (!group?.files.length) throw new Error('请先向文件集添加文件。');
+    return { projectRoot, group };
+  };
+  handle('fc:copy-group', (project: Project, id: string) =>
+    diskTask(async () => {
+      const { projectRoot, group } = authorizedGroup(project, id);
+      const result = await dialog.showOpenDialog(mainWindow, {
+        title: `把“${group.name}”复制到…`,
+        buttonLabel: '复制到这里',
+        properties: ['openDirectory', 'createDirectory'],
+      });
+      if (result.canceled || !result.filePaths[0]) return null;
+      return copyGroupFiles(projectRoot, group.files, result.filePaths[0], group.name);
+    }),
+  );
   handle('fc:export-group', (project: Project, id: string) =>
     diskTask(async () => {
-      const projectRoot = root();
-      validateAuthorized(project, projectRoot);
-      const group = project.canvasGroups?.find((item) => item.id === id);
-      if (!group?.files.length) throw new Error('请先向分组添加文件。');
+      const { projectRoot, group } = authorizedGroup(project, id);
       const result = await dialog.showSaveDialog(mainWindow, {
-        title: '打包画布分组',
+        title: `把“${group.name}”打包为 ZIP`,
         defaultPath: `${group.name}.zip`,
         filters: [{ name: 'ZIP 压缩包', extensions: ['zip'] }],
       });
@@ -560,7 +584,7 @@ app.whenReady().then(async () => {
       const destination = /\.zip$/i.test(result.filePath)
         ? result.filePath
         : `${result.filePath}.zip`;
-      return { path: await writeGroupZip(projectRoot, group.files, destination) };
+      return writeGroupZip(projectRoot, group.files, destination);
     }),
   );
   handle('fc:export-plan', async (project: Project) => {

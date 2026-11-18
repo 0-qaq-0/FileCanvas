@@ -291,6 +291,10 @@ try {
   await page.keyboard.press('Home');
   await page.keyboard.press('ArrowDown');
   await expect(
+    backgroundMenu().getByRole('menuitem', { name: '新建文件集…', exact: true }),
+  ).toBeFocused();
+  await page.keyboard.press('ArrowDown');
+  await expect(
     backgroundMenu().getByRole('menuitem', { name: '添加文件', exact: true }),
   ).toBeFocused();
   await page.keyboard.press('Escape');

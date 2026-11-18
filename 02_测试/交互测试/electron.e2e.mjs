@@ -201,7 +201,7 @@ try {
   // Cycle rejection through the actual UI, including a failed move into itself.
   await cardAction(page, card('图片'), '移动到…');
   await page
-    .getByRole('dialog', { name: '移动到虚拟文件夹' })
+    .getByRole('dialog', { name: '移动到文件夹' })
     .getByRole('button', { name: '图片', exact: true })
     .click();
   await expect(page.getByRole('status')).toContainText('自己');

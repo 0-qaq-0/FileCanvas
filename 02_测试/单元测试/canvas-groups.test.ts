@@ -4,8 +4,11 @@ import os from 'node:os';
 import path from 'node:path';
 import { inflateRawSync } from 'node:zlib';
 import {
+  addFolder,
   editCanvasGroups,
+  groupMembership,
   importEntries,
+  moveConflict,
   redo,
   renameNode,
   undo,
@@ -14,7 +17,11 @@ import {
 import { createProject, readEntry, validateAuthorized } from '../../01_源码/electron/filesystem';
 import { ProjectStorage } from '../../01_源码/electron/storage';
 import { DiskOperations } from '../../01_源码/electron/disk-operations';
-import { writeGroupZip } from '../../01_源码/electron/group-archive';
+import {
+  availableGroupFiles,
+  copyGroupFiles,
+  writeGroupZip,
+} from '../../01_源码/electron/group-archive';
 
 let base: string;
 let root: string;
@@ -53,7 +60,7 @@ function unpackSmallZip(bytes: Buffer) {
   return files;
 }
 
-describe('画布分组', () => {
+describe('文件集', () => {
   it('保存同一文件的多个分组，独立于磁盘计划，随画布操作撤销与重做', async () => {
     const source = path.join(root, '封面.txt');
     await fs.writeFile(source, '封面');
@@ -121,11 +128,75 @@ describe('画布分组', () => {
     expect(unpackSmallZip(await fs.readFile(output))['封面 (3).txt']).toBe('第二版');
   });
 
-  it('缺失原件时点明名称，且不会创建一个不完整的压缩包', async () => {
+  it('全部原件都找不到时报错，且不会留下压缩包', async () => {
     const output = path.join(base, '发给老师.zip');
     await expect(writeGroupZip(root, [path.join(root, '缺失.txt')], output)).rejects.toThrow(
-      '缺失.txt',
+      '都找不到',
     );
     expect(await fs.readdir(base)).toEqual(['原文件']);
+  });
+
+  it('部分原件找不到时打包其余文件，并报告跳过的文件', async () => {
+    const here = path.join(root, '在.txt');
+    const gone = path.join(root, '已改名.txt');
+    await fs.writeFile(here, '还在');
+    expect(await availableGroupFiles(root, [here, gone])).toMatchObject({ missing: [gone] });
+    const output = path.join(base, '部分.zip');
+    const result = await writeGroupZip(root, [here, gone], output);
+    expect(result).toEqual({ path: output, missing: [gone] });
+    expect(unpackSmallZip(await fs.readFile(output))).toEqual({ '在.txt': '还在' });
+  });
+
+  it('复制到新建的同名文件夹，不覆盖已有内容，原件不动', async () => {
+    const one = path.join(root, 'a.txt');
+    const other = path.join(root, '子');
+    await fs.mkdir(other);
+    const two = path.join(other, 'a.txt');
+    await fs.writeFile(one, '一');
+    await fs.writeFile(two, '二');
+    const target = path.join(base, '导出');
+    await fs.mkdir(path.join(target, '发给老师'), { recursive: true });
+    const result = await copyGroupFiles(
+      root,
+      [one, two, path.join(root, '没了.txt')],
+      target,
+      '发给老师',
+    );
+    expect(result.folder).toBe(path.join(target, '发给老师 (2)'));
+    expect(result).toMatchObject({ copied: 2, failed: [], missing: [path.join(root, '没了.txt')] });
+    expect((await fs.readdir(result.folder)).sort()).toEqual(['a (2).txt', 'a.txt']);
+    expect(await fs.readFile(path.join(result.folder, 'a (2).txt'), 'utf8')).toBe('二');
+    expect(await fs.readFile(one, 'utf8')).toBe('一');
+    expect(await fs.readdir(path.join(target, '发给老师'))).toEqual([]);
+  });
+
+  it('列出每个文件所在的文件集', () => {
+    const map = groupMembership([
+      { id: 'a', name: '甲', files: ['C:/x/A.txt'] },
+      { id: 'b', name: '乙', files: ['c:/x/a.txt', 'C:/x/b.txt'] },
+    ]);
+    expect(map.get('c:/x/a.txt')).toEqual(['甲', '乙']);
+    expect(map.get('c:/x/b.txt')).toEqual(['乙']);
+  });
+});
+
+describe('拖放前的冲突提示', () => {
+  it('同名文件和放进自己时说明原因，其他情况可以放入', async () => {
+    const file = path.join(root, '封面.png');
+    await fs.writeFile(file, 'x');
+    let state = workspace(await projectWithFile(file));
+    state = addFolder(state, '旧资料', null);
+    state = addFolder(state, '空', null);
+    const nodes = state.project.nodes;
+    const id = (name: string) => Object.values(nodes).find((node) => node.name === name)!.id;
+    expect(moveConflict(nodes, [id('封面.png')], id('空'))).toBeNull();
+    expect(moveConflict(nodes, [id('旧资料')], id('旧资料'))).toContain('自己');
+    const inside = { ...nodes, [id('空')]: { ...nodes[id('空')], name: '封面.png' } };
+    expect(moveConflict(inside, [id('封面.png')], null)).toBeNull();
+    const clash = {
+      ...nodes,
+      extra: { ...nodes[id('封面.png')], id: 'extra', parentId: id('旧资料') },
+    };
+    expect(moveConflict(clash, [id('封面.png')], id('旧资料'))).toContain('同名');
   });
 });

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
 import {
   ArrowDown,
   ArrowUp,
@@ -132,6 +133,8 @@ function Tile({
 }
 
 interface Props {
+  // Shown above the rows inside the scroller (the file sets).
+  header?: ReactNode;
   mode: Exclude<ViewMode, 'canvas'>;
   nodes: NodeMap;
   rootPath: string;
@@ -621,6 +624,7 @@ export function ListingView(props: Props) {
           } else keyboard(e);
         }}
       >
+        {props.header}
         {empty ? (
           <div className="canvas-empty listing-empty">
             <FileIcon name="" folder size={54} />
@@ -631,7 +635,7 @@ export function ListingView(props: Props) {
             </button>
             <button className="button" onClick={props.onCreate}>
               <FolderPlus size={15} />
-              新建虚拟文件夹
+              新建文件夹
             </button>
           </div>
         ) : mode === 'tiles' ? (

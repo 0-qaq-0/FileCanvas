@@ -1866,6 +1866,7 @@ button {
   color: var(--fc-muted);
 }
 .content-panel .path-inspector {
+  height: auto;
   margin: 0 16px;
   display: flex;
   flex-direction: column;

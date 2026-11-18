@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft,
   ChevronRight,
@@ -54,6 +54,7 @@ import {
   addFolder,
   commit,
   editCanvasGroups,
+  groupMembership,
   uniqueGroupFiles,
   validateName,
   importEntries,
@@ -98,6 +99,7 @@ import { WelcomeArt } from './components/WelcomeArt';
 import { readTutorialDone, writeTutorialDone } from './domain/tutorial';
 import { SettingsDialog } from './components/SettingsDialog';
 import { ListingView, VIEW_ICON } from './components/FileViews';
+import { CanvasGroups } from './components/CanvasGroups';
 import { DEFAULT_PREFERENCES, normalizePreferences } from './domain/preferences';
 import type { Preferences } from './domain/preferences';
 
@@ -167,6 +169,53 @@ export default function App() {
   const [name, setName] = useState('');
   const [nameError, setNameError] = useState('');
   const [renameId, setRenameId] = useState('');
+  // The file set being renamed in the name dialog; null while creating one.
+  const [groupEdit, setGroupEdit] = useState<string | null>(null);
+  const [missingFiles, setMissingFiles] = useState<Set<string>>(() => new Set());
+  // Bumped when the window comes back, since files are usually renamed elsewhere meanwhile.
+  const [focusTick, setFocusTick] = useState(0);
+  useEffect(() => {
+    const bump = () => setFocusTick((value) => value + 1);
+    window.addEventListener('focus', bump);
+    return () => window.removeEventListener('focus', bump);
+  }, []);
+  const canvasGroups = state?.project.canvasGroups;
+  const memberships = useMemo(() => groupMembership(canvasGroups), [canvasGroups]);
+  const groupPaths = useMemo(
+    () => [...new Set((canvasGroups ?? []).flatMap((group) => group.files))],
+    [canvasGroups],
+  );
+  // Set files live outside the plan, so check the disk for them whenever the sets or the canvas
+  // change (a refresh after files were renamed elsewhere changes the canvas).
+  const projectNodes = state?.project.nodes;
+  const sourceKey = useMemo(
+    () =>
+      Object.values(projectNodes ?? {})
+        .map((node) => node.source?.path ?? '')
+        .join('|'),
+    [projectNodes],
+  );
+  useEffect(() => {
+    if (busy) return;
+    if (!groupPaths.length) {
+      setMissingFiles((old) => (old.size ? new Set() : old));
+      return;
+    }
+    let live = true;
+    const timer = setTimeout(() => {
+      void window.fileCanvas
+        .missingGroupFiles(groupPaths)
+        .then((result) => {
+          if (live && result.ok)
+            setMissingFiles(new Set((result.data ?? []).map((file) => file.toLowerCase())));
+        })
+        .catch(() => {});
+    }, 300);
+    return () => {
+      live = false;
+      clearTimeout(timer);
+    };
+  }, [groupPaths, sourceKey, focusTick, busy]);
   const [createParentId, setCreateParentId] = useState<string | null>(null);
   const [records, setRecords] = useState<ProjectRecord[]>([]);
   const [places, setPlaces] = useState<KnownFolder[]>([]);
@@ -679,24 +728,49 @@ export default function App() {
   function openCanvasGroup() {
     setName('');
     setNameError('');
+    setGroupEdit(null);
     setDialog('canvas-group');
   }
+  function openGroupRename(id: string) {
+    const group = current.current?.project.canvasGroups?.find((item) => item.id === id);
+    if (!group) return;
+    setName(group.name);
+    setNameError('');
+    setGroupEdit(id);
+    setDialog('canvas-group');
+  }
+  // Files of the selection; a folder brings the files inside it that are on the canvas.
   function selectedFiles(nodes: NodeMap, ids: string[]) {
-    return ids.flatMap((id) => {
-      const node = nodes[id];
-      return node?.kind === 'file' && node.source ? [node.source.path] : [];
-    });
+    const all = Object.values(nodes);
+    return uniqueGroupFiles(
+      ids.flatMap((id) => {
+        const node = nodes[id];
+        if (!node) return [];
+        if (node.kind === 'file') return node.source ? [node.source.path] : [];
+        return all
+          .filter((item) => item.kind === 'file' && item.source && isDescendant(nodes, item.id, id))
+          .map((item) => item.source!.path);
+      }),
+    );
   }
   function addToCanvasGroup(groupId: string, ids: string[], paths: string[]) {
     const addFiles = (state: Workspace, files: string[]) => {
-      if (!files.length) throw new Error('请展开文件夹，把里面的文件拖进分组。');
-      return editCanvasGroups(state, '加入画布分组', (groups) =>
-        groups.map((group) =>
-          group.id === groupId
-            ? { ...group, files: uniqueGroupFiles([...group.files, ...files]) }
-            : group,
+      if (!files.length) throw new Error('这里没有可加入的文件。文件夹里的文件要先出现在画布上。');
+      const group = state.project.canvasGroups?.find((item) => item.id === groupId);
+      const next = editCanvasGroups(state, '加入文件集', (groups) =>
+        groups.map((item) =>
+          item.id === groupId
+            ? { ...item, files: uniqueGroupFiles([...item.files, ...files]) }
+            : item,
         ),
       );
+      if (group)
+        notify(
+          next === state
+            ? `这些文件已经在“${group.name}”里了。`
+            : `已加入“${group.name}”。文件留在原处，Ctrl+Z 可撤销。`,
+        );
+      return next;
     };
     if (paths.length) {
       void run(async () => {
@@ -707,7 +781,7 @@ export default function App() {
   }
   function removeFromCanvasGroup(groupId: string, file?: string) {
     edit((state) =>
-      editCanvasGroups(state, file ? '移出画布分组' : '移除画布分组', (groups) =>
+      editCanvasGroups(state, file ? '移出文件集' : '删除文件集', (groups) =>
         file
           ? groups.map((group) =>
               group.id === groupId
@@ -717,15 +791,85 @@ export default function App() {
           : groups.filter((group) => group.id !== groupId),
       ),
     );
+    if (!file) notify('已删除文件集，里面的文件没有改动。Ctrl+Z 可撤销。');
   }
+  function pruneCanvasGroup(groupId: string) {
+    edit((state) =>
+      editCanvasGroups(state, '移除找不到的文件', (groups) =>
+        groups.map((group) =>
+          group.id === groupId
+            ? {
+                ...group,
+                files: group.files.filter((file) => !missingFiles.has(file.toLowerCase())),
+              }
+            : group,
+        ),
+      ),
+    );
+  }
+  const skippedNote = (missing: string[]) =>
+    missing.length ? `，跳过了 ${missing.length} 个找不到的文件` : '';
   function exportCanvasGroup(id: string) {
     void run(async () => {
       const project = current.current!.project;
       await persist(project);
       const result = unwrap(await window.fileCanvas.exportGroup(project, id));
-      if (result) notify(`压缩包已保存到 ${result.path}`);
-    }, '正在打包分组…');
+      if (result) notify(`压缩包已保存到 ${result.path}${skippedNote(result.missing)}。`);
+    }, '正在打包文件集…');
   }
+  function copyCanvasGroup(id: string) {
+    void run(async () => {
+      const project = current.current!.project;
+      await persist(project);
+      const result = unwrap(await window.fileCanvas.copyGroup(project, id));
+      if (!result) return;
+      const failed = result.failed.length
+        ? `；${result.failed.length} 个没能复制：${result.failed[0]}`
+        : '';
+      notify(
+        `已复制 ${result.copied} 个文件到 ${result.folder}${skippedNote(result.missing)}${failed}。原文件留在原处。`,
+      );
+    }, '正在复制文件集…');
+  }
+  // The set's files on the canvas go into a new folder named after it. Like any other move this is
+  // only a plan until it is previewed and applied, so it can be undone and restored.
+  function collectCanvasGroup(id: string) {
+    const state = current.current;
+    const group = state?.project.canvasGroups?.find((item) => item.id === id);
+    if (!state || !group) return;
+    const wanted = new Set(group.files.map((file) => file.toLowerCase()));
+    const ids = Object.values(state.project.nodes)
+      .filter(
+        (node) => node.kind === 'file' && node.source && wanted.has(node.source.path.toLowerCase()),
+      )
+      .map((node) => node.id);
+    if (!ids.length) {
+      notify('这个文件集里的文件都不在画布上，先用“原始文件栏”把它们加回画布。');
+      return;
+    }
+    try {
+      const folderId = crypto.randomUUID();
+      replace(moveToNewFolder(state, ids, group.name, parentId, folderId));
+      setSelected([]);
+      setHighlighted(folderId);
+      setTimeout(() => setHighlighted((old) => (old === folderId ? null : old)), 2600);
+      const outside = group.files.length - ids.length;
+      notify(
+        `已把 ${ids.length} 个文件收进新文件夹“${group.name}”${outside ? `（${outside} 个不在画布上，未收进）` : ''}。点“预览并应用”后才会移动，Ctrl+Z 可撤销。`,
+      );
+    } catch (error) {
+      notify((error as Error).message);
+    }
+  }
+  const groupActions = {
+    onOpen: openSource,
+    onExport: exportCanvasGroup,
+    onCopy: copyCanvasGroup,
+    onCollect: collectCanvasGroup,
+    onRename: openGroupRename,
+    onRemove: removeFromCanvasGroup,
+    onPrune: pruneCanvasGroup,
+  };
   function openCollect() {
     const nodes = current.current?.project.nodes;
     if (!nodes || !selected.length) return;
@@ -747,11 +891,25 @@ export default function App() {
       if (dialog === 'canvas-group') {
         const groupName = name.trim();
         validateName(groupName);
-        const files = selectedFiles(current.current.project.nodes, selected);
-        const group = { id: crypto.randomUUID(), name: groupName, files };
-        replace(editCanvasGroups(current.current, '新建画布分组', (groups) => [...groups, group]));
-        if (prefs.viewMode !== 'canvas') updatePrefs({ viewMode: 'canvas' });
-        setSelected([]);
+        if (groupEdit) {
+          replace(
+            editCanvasGroups(current.current, '重命名文件集', (groups) =>
+              groups.map((group) =>
+                group.id === groupEdit ? { ...group, name: groupName } : group,
+              ),
+            ),
+          );
+        } else {
+          const files = selectedFiles(current.current.project.nodes, selected);
+          const group = { id: crypto.randomUUID(), name: groupName, files };
+          replace(editCanvasGroups(current.current, '新建文件集', (groups) => [...groups, group]));
+          notify(
+            files.length
+              ? `已新建文件集“${groupName}”，${files.length} 个文件留在原处。`
+              : `已新建文件集“${groupName}”，把文件拖进去或右键文件选“加入”。`,
+          );
+          setSelected([]);
+        }
         setDialog(null);
         return;
       }
@@ -826,7 +984,12 @@ export default function App() {
   function backgroundItems(extras: MenuItem[]): MenuItem[] {
     return [
       { label: '新建文件夹', icon: <FolderPlus size={14} />, onClick: openCreate },
-      { label: '新建分组', icon: <Layers3 size={14} />, onClick: openCanvasGroup },
+      {
+        label: '新建文件集…',
+        hint: '只记录文件，不移动',
+        icon: <Layers3 size={14} />,
+        onClick: openCanvasGroup,
+      },
       ...extras.map((item, index) => ({ ...item, group: index === 0 || item.group })),
       {
         label: '撤销未应用的修改',
@@ -890,12 +1053,6 @@ export default function App() {
       });
     items.push(
       {
-        label: '新建分组',
-        icon: <Layers3 size={14} />,
-        disabled: !(node.kind === 'file' || (many && selectedFiles(nodes, selected).length)),
-        onClick: openCanvasGroup,
-      },
-      {
         label: '移动到…',
         icon: <MoveRight size={14} />,
         onClick: () => setDialog('move'),
@@ -927,6 +1084,30 @@ export default function App() {
         icon: <FolderPlus size={14} />,
         onClick: () => openCreateIn(id),
       });
+    // File sets sit apart from the moves above: they never change where a file is.
+    const files = selectedFiles(nodes, many ? selected : [id]);
+    const sets = state?.project.canvasGroups ?? [];
+    sets.forEach((group, index) => {
+      const inside = new Set(group.files.map((file) => file.toLowerCase()));
+      const all = files.length > 0 && files.every((file) => inside.has(file.toLowerCase()));
+      items.push({
+        id: `set-${group.id}`,
+        label: `加入“${group.name}”`,
+        hint: all ? '已在这个文件集里' : index === 0 ? '文件集只记录，不移动文件' : undefined,
+        icon: <Layers3 size={14} />,
+        disabled: !files.length || all,
+        group: index === 0,
+        onClick: () => addToCanvasGroup(group.id, many ? selected : [id], []),
+      });
+    });
+    items.push({
+      label: sets.length ? '新建文件集…' : '加入新文件集…',
+      hint: sets.length ? undefined : '只记录文件，不移动',
+      icon: <Layers3 size={14} />,
+      disabled: !files.length,
+      group: !sets.length,
+      onClick: openCanvasGroup,
+    });
     items.push({
       label: '移出画布',
       hint: '不删除本地文件',
@@ -999,7 +1180,7 @@ export default function App() {
       };
     });
     setSelected([]);
-    notify('已从虚拟画布移出，可撤销。硬盘文件保持不变。');
+    notify('已移出画布，可撤销。硬盘文件保持不变。');
   }
   const nodes = state?.project.nodes ?? {};
   const imported = new Set(Object.keys(nodes));
@@ -1097,7 +1278,8 @@ export default function App() {
           <Redo2 size={18} />
         </button>
         <button
-          className="button primary apply-entry"
+          className={`button apply-entry${pendingCount > 0 ? ' primary' : ''}`}
+          title={pendingCount > 0 ? undefined : '还没有待应用的修改'}
           data-tour="apply"
           disabled={!state || busy || !!operation?.needsRecovery}
           onClick={checkPlan}
@@ -1425,9 +1607,9 @@ export default function App() {
                 nodes={nodes}
                 groups={state.project.canvasGroups ?? []}
                 onGroupDrop={addToCanvasGroup}
-                onGroupOpen={openSource}
-                onGroupExport={exportCanvasGroup}
-                onGroupRemove={removeFromCanvasGroup}
+                groupActions={groupActions}
+                memberships={memberships}
+                missingGroupFiles={missingFiles}
                 rootPath={state.project.rootPath}
                 initialExpanded={state.project.view?.expandedIds}
                 onExpandedChange={(expandedIds) => updateView({ expandedIds })}
@@ -1476,6 +1658,19 @@ export default function App() {
             ) : (
               <ListingView
                 key={`${state.project.id}-${parentId ?? 'root'}-${canvasRevision}`}
+                header={
+                  state.project.canvasGroups?.length ? (
+                    <div className="list-file-sets">
+                      <CanvasGroups
+                        groups={state.project.canvasGroups}
+                        dropTarget={null}
+                        droppable={false}
+                        missing={missingFiles}
+                        {...groupActions}
+                      />
+                    </div>
+                  ) : undefined
+                }
                 mode={prefs.viewMode}
                 nodes={nodes}
                 rootPath={state.project.rootPath}
@@ -1767,21 +1962,23 @@ export default function App() {
         <Modal
           title={
             dialog === 'canvas-group'
-              ? '新建分组'
+              ? groupEdit
+                ? '重命名文件集'
+                : '新建文件集'
               : dialog === 'create'
-                ? '新建虚拟文件夹'
+                ? '新建文件夹'
                 : dialog === 'collect'
                   ? `把 ${selected.length} 项移入新文件夹`
-                  : '重命名虚拟条目'
+                  : '重命名'
           }
           subtitle={
             dialog === 'canvas-group'
-              ? '分组保存在画布里，原文件留在原处。'
+              ? '文件集只记录文件在哪，原文件留在原处；同一个文件可以放进多个文件集。'
               : dialog === 'create'
-                ? `将在“${createParentId ? nodes[createParentId]?.name : state?.project.name}”中新建，仅修改整理计划。`
+                ? `将在“${createParentId ? nodes[createParentId]?.name : state?.project.name}”中新建。应用前不会改动硬盘。`
                 : dialog === 'collect'
-                  ? '新文件夹建在选中项所在的位置；仅修改虚拟整理项目，原始文件不会改变。'
-                  : '仅修改虚拟整理项目，原始文件不会改变。'
+                  ? '新文件夹建在选中项所在的位置。应用前不会移动硬盘文件。'
+                  : '只改整理计划，应用前不会改动硬盘文件。'
           }
           onClose={() => setDialog(null)}
         >
@@ -1811,7 +2008,13 @@ export default function App() {
                 取消
               </button>
               <button className="button primary" type="submit">
-                {dialog === 'create' ? '创建' : dialog === 'collect' ? '创建并移入' : '确认重命名'}
+                {dialog === 'create'
+                  ? '创建'
+                  : dialog === 'collect'
+                    ? '创建并移入'
+                    : dialog === 'canvas-group' && !groupEdit
+                      ? '创建文件集'
+                      : '确认重命名'}
               </button>
             </div>
           </form>

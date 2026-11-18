@@ -70,3 +70,82 @@
   color: var(--fc-muted);
   font-size: 12px;
 }
+
+.canvas-group-toggle {
+  flex: 0 0 auto;
+  align-self: start;
+  display: grid;
+  grid-template-columns: auto auto auto;
+  align-items: center;
+  justify-items: start;
+  column-gap: 4px;
+  row-gap: 2px;
+  padding: 6px 8px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.canvas-group-toggle small {
+  grid-column: 1 / -1;
+  color: var(--fc-muted);
+  font-weight: 400;
+  font-size: 11px;
+}
+
+.canvas-group-strip.is-collapsed {
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+
+.canvas-group-strip.is-collapsed .canvas-group-toggle {
+  grid-template-columns: auto auto auto auto;
+}
+
+.canvas-group-strip.is-collapsed .canvas-group-toggle small {
+  grid-column: auto;
+  margin-left: 6px;
+}
+
+.canvas-group-count {
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--fc-paper);
+  color: var(--fc-muted);
+  font-size: 11px;
+  text-align: center;
+}
+
+.canvas-group .canvas-group-warning {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 6px 2px 0;
+  color: #9a4a1f;
+  font-size: 11.5px;
+}
+
+.canvas-group-files li.is-missing .canvas-group-file {
+  color: var(--fc-muted);
+  text-decoration: line-through;
+}
+
+.file-set-badge {
+  position: absolute;
+  left: 6px;
+  bottom: 5px;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 1px 5px;
+  border-radius: 999px;
+  background: var(--fc-paper);
+  color: var(--fc-brand-strong, #245e3c);
+  font-size: 10.5px;
+  line-height: 16px;
+  pointer-events: auto;
+}
+
+.list-file-sets {
+  border-bottom: 1px solid var(--fc-line, #e3e8e5);
+}

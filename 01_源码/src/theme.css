@@ -481,6 +481,9 @@ button {
   padding: 6px 14px;
   box-shadow: var(--fc-shadow-2);
 }
+.drop-destination.drop-blocked {
+  background: #9a4a1f;
+}
 .selection-box {
   background: rgba(36, 122, 108, 0.1);
   border: 1px solid var(--fc-brand);

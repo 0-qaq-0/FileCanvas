@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   FolderPlus,
+  Layers3,
   LayoutGrid,
   MousePointer2,
   Eye,
@@ -19,6 +20,7 @@ import {
   setGridColumns,
   topLevelSelection,
   isDescendant,
+  moveConflict,
 } from '../domain/workspace';
 import {
   CANVAS_RIGHT_MARGIN,
@@ -37,6 +39,7 @@ import type { MenuItem } from './ContextMenu';
 import { ICON_SCALE_STEP } from '../domain/preferences';
 import { FileIcon } from './FileIcon';
 import { CanvasGroups } from './CanvasGroups';
+import type { CanvasGroupActions } from './CanvasGroups';
 import { FileFacts, FolderVisual } from './FileFacts';
 import { fileInfo, summarizeFolders, folderDescription, folderSize } from '../domain/file-info';
 interface Props {
@@ -47,9 +50,10 @@ interface Props {
   nodes: NodeMap;
   groups: CanvasGroup[];
   onGroupDrop(id: string, ids: string[], paths: string[]): void;
-  onGroupExport(id: string): void;
-  onGroupRemove(id: string, file?: string): void;
-  onGroupOpen(file: string): void;
+  groupActions: CanvasGroupActions;
+  // Lower-cased path → names of the file sets holding it, and the set files not found on disk.
+  memberships: Map<string, string[]>;
+  missingGroupFiles: Set<string>;
   parentId: string | null;
   selected: string[];
   highlighted?: string | null;
@@ -160,6 +164,12 @@ export function Canvas(props: Props) {
     [raised, setRaised] = useState<string[]>([]);
   const [groupHover, setGroupHover] = useState<string | null>(null);
   const rank = useMemo(() => new Map(raised.map((id, i) => [id, i + 1])), [raised]);
+  // Said while dragging, so a drop that would be refused does not look like it will work.
+  const dragIds = gesture.current?.type === 'cards' ? gesture.current.ids : [];
+  const blocked =
+    hover !== undefined && hover !== parentId && !groupHover && dragIds.length
+      ? moveConflict(nodes, dragIds, hover)
+      : null;
   function raise(ids: string[]) {
     setRaised((old) => [...old.filter((id) => !ids.includes(id)), ...ids].slice(-90));
   }
@@ -350,7 +360,9 @@ export function Canvas(props: Props) {
     if (hoverId.current === id) return;
     hoverId.current = id;
     if (hoverTimer.current) clearTimeout(hoverTimer.current);
-    if (id && !expanded.has(id))
+    // Opening a folder the cards cannot go into would only move the target from under the pointer.
+    const ids = gesture.current?.type === 'cards' ? gesture.current.ids : [];
+    if (id && !expanded.has(id) && !(ids.length && moveConflict(nodes, ids, id)))
       hoverTimer.current = setTimeout(() => setExpanded((old) => new Set([...old, id])), 650);
   }
   // Free placement is the default; the setting and the Alt key (which inverts it) only matter
@@ -762,9 +774,8 @@ export function Canvas(props: Props) {
         <CanvasGroups
           groups={props.groups}
           dropTarget={groupHover}
-          onOpen={props.onGroupOpen}
-          onExport={props.onGroupExport}
-          onRemove={props.onGroupRemove}
+          missing={props.missingGroupFiles}
+          {...props.groupActions}
         />
         {/* The wrapper takes the scaled size so the scroll area matches what is painted; clip
             (not hidden) keeps it from becoming the scroller of the sticky drop hint. */}
@@ -796,7 +807,7 @@ export function Canvas(props: Props) {
                 </button>
                 <button className="button" onClick={props.onCreate}>
                   <FolderPlus size={15} />
-                  新建虚拟文件夹
+                  新建文件夹
                 </button>
               </div>
             )}
@@ -952,6 +963,16 @@ export function Canvas(props: Props) {
                         {node.name}
                       </span>
                       <FileFacts node={node} summary={folderSummaries.get(node.id)} />
+                      {(() => {
+                        const sets =
+                          node.source && props.memberships.get(node.source.path.toLowerCase());
+                        return sets ? (
+                          <span className="file-set-badge" title={`文件集：${sets.join('、')}`}>
+                            <Layers3 size={10} />
+                            {sets.length}
+                          </span>
+                        ) : null;
+                      })()}
                       <button
                         className="card-preview-button"
                         title={isFolder ? `展开 ${node.name}` : `预览 ${node.name}`}
@@ -982,11 +1003,15 @@ export function Canvas(props: Props) {
                 style={{ left: box.x, top: box.y, width: box.w, height: box.h }}
               />
             )}
-            {hover !== undefined && (
-              <div className="drop-destination" role="status">
-                {hover === parentId
-                  ? `放在松手的位置${snapping ? '（对齐网格）' : ''}`
-                  : `放入：${hover ? relativeTarget(nodes, hover).join(' / ') : '项目根目录'}`}
+            {(hover !== undefined || groupHover) && (
+              <div className={`drop-destination${blocked ? ' drop-blocked' : ''}`} role="status">
+                {groupHover
+                  ? `加入文件集：${props.groups.find((group) => group.id === groupHover)?.name ?? ''}（不移动文件）`
+                  : blocked
+                    ? `无法放入：${blocked}`
+                    : hover === parentId
+                      ? `放在松手的位置${snapping ? '（对齐网格）' : ''}`
+                      : `放入：${hover ? relativeTarget(nodes, hover).join(' / ') : '项目根目录'}`}
                 {dragCount > 1 && ` · ${dragCount} 项`}
               </div>
             )}

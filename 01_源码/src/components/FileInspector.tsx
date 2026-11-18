@@ -171,7 +171,7 @@ export function FileInspector({
             {node.kind === 'folder'
               ? `${folderSummary?.files ?? 0} 个文件 · 画布内`
               : `${fileInfo(node.name).description} · ${formatSize(node.source?.size)}`}{' '}
-            · 可从这里拖到画布
+            · 拖动标题可放入文件夹
           </small>
         </div>
       </div>

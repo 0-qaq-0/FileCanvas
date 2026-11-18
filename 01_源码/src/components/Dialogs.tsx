@@ -386,8 +386,8 @@ export function MoveDialog({
 }) {
   return (
     <Modal
-      title="移动到虚拟文件夹"
-      subtitle="只改变整理结构，不移动硬盘文件。循环层级或同名操作会被拒绝。"
+      title="移动到文件夹"
+      subtitle="只改整理计划，应用前不会移动硬盘文件。有同名文件或放进自己时无法移入。"
       onClose={onClose}
     >
       <div className="move-list">

@@ -117,7 +117,7 @@ export function workspace(project: Project): Workspace {
 }
 function validateCanvasGroups(groups: CanvasGroup[] | undefined) {
   if (groups === undefined) return;
-  if (!Array.isArray(groups) || groups.length > MAX_NODES) throw new Error('画布分组数量无效。');
+  if (!Array.isArray(groups) || groups.length > MAX_NODES) throw new Error('文件集数量无效。');
   const ids = new Set<string>();
   let total = 0;
   for (const group of groups) {
@@ -129,15 +129,15 @@ function validateCanvasGroups(groups: CanvasGroup[] | undefined) {
       typeof group.name !== 'string' ||
       !Array.isArray(group.files)
     )
-      throw new Error('画布分组内容无效。');
+      throw new Error('文件集内容无效。');
     validateName(group.name);
     ids.add(group.id);
     total += group.files.length;
-    if (total > MAX_NODES) throw new Error(`画布分组最多保存 ${MAX_NODES} 个文件关联。`);
+    if (total > MAX_NODES) throw new Error(`文件集最多保存 ${MAX_NODES} 个文件关联。`);
     const paths = new Set<string>();
     for (const file of group.files) {
       if (typeof file !== 'string' || !file || file.includes('\0') || paths.has(file.toLowerCase()))
-        throw new Error('画布分组的文件路径无效。');
+        throw new Error('文件集的文件路径无效。');
       paths.add(file.toLowerCase());
     }
   }
@@ -175,6 +175,17 @@ export function uniqueGroupFiles(files: string[]): string[] {
     seen.add(key);
     return true;
   });
+}
+
+/** Lower-cased file path → names of the sets that hold it. */
+export function groupMembership(groups: CanvasGroup[] | undefined): Map<string, string[]> {
+  const result = new Map<string, string[]>();
+  for (const group of groups ?? [])
+    for (const file of group.files) {
+      const key = file.toLowerCase();
+      result.set(key, [...(result.get(key) ?? []), group.name]);
+    }
+  return result;
 }
 
 export function remapCanvasGroups(groups: CanvasGroup[] | undefined, paths: Map<string, string>) {
@@ -277,6 +288,27 @@ export function topLevelSelection(nodes: NodeMap, ids: string[]): string[] {
       !ids.some((other) => other !== id && isDescendant(nodes, nodes[id].parentId, other)),
   );
 }
+/** Why dropping `ids` into `parentId` would be refused, or null when it can go there. */
+export function moveConflict(
+  nodes: NodeMap,
+  ids: string[],
+  parentId: string | null,
+): string | null {
+  const moving = topLevelSelection(nodes, ids).filter((id) => nodes[id].parentId !== parentId);
+  if (moving.some((id) => isDescendant(nodes, parentId, id))) return '不能放进自己或自己的子文件夹';
+  const names = new Set(
+    children(nodes, parentId)
+      .filter((child) => !moving.includes(child.id))
+      .map((child) => child.name.toLowerCase()),
+  );
+  const seen = new Set<string>();
+  for (const id of moving) {
+    const key = nodes[id].name.toLowerCase();
+    if (names.has(key) || seen.has(key)) return `已有同名的“${nodes[id].name}”`;
+    seen.add(key);
+  }
+  return null;
+}
 /**
  * `positions` are the spots the user released the items on; without one an item takes the next
  * free slot of its new folder. Items already in `parentId` are simply placed again.
@@ -346,7 +378,7 @@ export function moveToNewFolder(
   });
 }
 export function addFolder(state: Workspace, name: string, parentId: string | null): Workspace {
-  return commit(state, '新建虚拟文件夹', (nodes) => {
+  return commit(state, '新建文件夹', (nodes) => {
     const id = crypto.randomUUID();
     const index = children(nodes, parentId).length;
     nodes[id] = {

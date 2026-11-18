@@ -13,6 +13,7 @@ const suites = [
   'views.e2e',
   'expanded-flow.e2e',
   'maturity.e2e',
+  'file-sets.e2e',
   'recovery-crash',
 ];
 const failed = [];

@@ -24,7 +24,7 @@ export function PathInspector({
         </span>
       </div>
     );
-  const from = node.source ? relativePath(root, node.source.path) : '尚未创建（虚拟文件夹）';
+  const from = node.source ? relativePath(root, node.source.path) : '尚未创建（应用时新建）';
   const to = relativeTarget(nodes, node.id).join('/');
   const unchanged = !!node.source && from === to;
   return (

@@ -31,6 +31,7 @@
     "test:views": "npm run build && node 02_测试/交互测试/views.e2e.mjs",
     "test:simple": "npm run build && node 02_测试/交互测试/simple-ui.e2e.mjs",
     "test:maturity": "npm run build && node 02_测试/交互测试/maturity.e2e.mjs",
+    "test:sets": "npm run build && node 02_测试/交互测试/file-sets.e2e.mjs",
     "preview:simple": "npm run build && node 04_构建脚本/preview-simple-ui.mjs",
     "source:zip": "node 04_构建脚本/package-source.mjs"
   },
