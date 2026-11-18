@@ -6,23 +6,31 @@
   "main": "06_构建产物/electron/main.cjs",
   "author": "FileCanvas",
   "license": "PolyForm-Noncommercial-1.0.0",
+  "engines": {
+    "node": ">=22.12"
+  },
   "scripts": {
     "dev": "node 04_构建脚本/dev.mjs",
     "build": "tsc --noEmit && vite build && node 04_构建脚本/build-electron.mjs",
     "start": "electron .",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint 01_源码 02_测试 04_构建脚本 eslint.config.mjs",
+    "format:check": "prettier --check 01_源码 02_测试 04_构建脚本 vite.config.ts vitest.config.ts tsconfig.json package.json eslint.config.mjs",
     "test": "vitest run",
+    "test:desktop": "npm run build && node 04_构建脚本/run-desktop-tests.mjs",
     "test:e2e": "npm run build && node 02_测试/交互测试/electron.e2e.mjs",
     "format": "prettier --write 01_源码 02_测试 04_构建脚本 vite.config.ts vitest.config.ts tsconfig.json package.json README.md 05_项目文档",
     "package:win": "npm run build && electron-builder --win portable --x64",
     "package:dir": "npm run build && electron-builder --win --x64 --dir",
     "test:demo": "npm run build && node 02_测试/交互测试/demo.e2e.mjs",
     "test:ai": "npm run build && node 02_测试/交互测试/canvas-ai.e2e.mjs",
-    "test:expanded": "node 02_测试/交互测试/expanded-flow.e2e.mjs",
+    "test:expanded": "npm run build && node 02_测试/交互测试/expanded-flow.e2e.mjs",
     "test:smart": "npm run build && node 02_测试/交互测试/smart-organize.e2e.mjs",
     "test:tutorial": "npm run build && node 02_测试/交互测试/tutorial.e2e.mjs",
     "test:settings": "npm run build && node 02_测试/交互测试/settings.e2e.mjs",
     "test:views": "npm run build && node 02_测试/交互测试/views.e2e.mjs",
     "test:simple": "npm run build && node 02_测试/交互测试/simple-ui.e2e.mjs",
+    "test:maturity": "npm run build && node 02_测试/交互测试/maturity.e2e.mjs",
     "preview:simple": "npm run build && node 04_构建脚本/preview-simple-ui.mjs",
     "source:zip": "node 04_构建脚本/package-source.mjs"
   },
@@ -33,6 +41,7 @@
     "yazl": "3.3.1"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.5",
     "@playwright/test": "^1.56.0",
     "@types/node": "^24.0.0",
     "@types/react": "^19.0.0",
@@ -42,8 +51,12 @@
     "electron": "^39.0.0",
     "electron-builder": "^26.0.0",
     "esbuild": "^0.25.0",
+    "eslint": "^9.39.5",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "globals": "^16.5.0",
     "prettier": "^3.6.2",
     "typescript": "^5.9.0",
+    "typescript-eslint": "^8.72.1",
     "vite": "^7.1.0",
     "vitest": "^3.2.0"
   },
@@ -64,6 +77,11 @@
       "target": "portable",
       "icon": "01_源码/assets/icon.ico",
       "artifactName": "FileCanvas-${version}-Windows-${arch}.${ext}"
+    },
+    "electronFuses": {
+      "runAsNode": false,
+      "onlyLoadAppFromAsar": true,
+      "enableNodeOptionsEnvironmentVariable": false
     }
   }
 }

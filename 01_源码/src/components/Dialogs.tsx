@@ -8,6 +8,7 @@ import {
   Check,
   Download,
   GitCompareArrows,
+  Trash2,
 } from 'lucide-react';
 import type { NodeMap, Preview, ProjectRecord } from '../domain/types';
 import { relativeTarget } from '../domain/workspace';
@@ -39,6 +40,19 @@ export function Modal({
     target?.focus();
     return () => previous?.focus();
   }, []);
+  // A focused control can disappear while the dialog is open (an option that only applies to one
+  // mode, say). Focus then falls out of the dialog, and Esc must still close it.
+  const close = useRef(onClose);
+  close.current = onClose;
+  useEffect(() => {
+    if (side) return;
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !section.current?.contains(event.target as Node))
+        close.current();
+    };
+    window.addEventListener('keydown', escape);
+    return () => window.removeEventListener('keydown', escape);
+  }, [side]);
   return (
     <div
       className={`modal-backdrop ${side ? 'side' : ''}`}
@@ -121,8 +135,13 @@ export function PreviewDialog({
 }) {
   const [view, setView] = useState<'changes' | 'structure'>('changes');
   const trees = useMemo(() => planTrees(preview, rootPath), [preview, rootPath]);
-  const shown = preview.changes.filter(
-    (c) => showUnchanged || c.kind !== 'unchanged' || c.issues.length,
+  // What needs attention comes first: in a long list a single problem would be easy to miss.
+  const shown = useMemo(
+    () =>
+      preview.changes
+        .filter((c) => showUnchanged || c.kind !== 'unchanged' || c.issues.length)
+        .sort((a, b) => Number(!!b.issues.length) - Number(!!a.issues.length)),
+    [preview, showUnchanged],
   );
   // Say what will happen in the user's words ("移动 8 项"), not as one total of plan entries.
   const count = (...kinds: string[]) =>
@@ -170,7 +189,7 @@ export function PreviewDialog({
           title={`整理涉及的文件夹里，另有 ${preview.preserved ?? '其他'} 个未加入画布的条目，会原样保留；没有涉及的位置不会被读取或改动。原有未改动的空目录保留。`}
         >
           {preview.preserved ? `画布外的 ${preview.preserved} 个条目原样保留 · ` : ''}
-          只改动上面列出的路径 · 每次最多 100 个文件
+          只改动上面列出的路径
         </small>
       </div>
       {errorMessage && (
@@ -290,30 +309,67 @@ export function PreviewDialog({
 }
 export function ProjectsDialog({
   records,
+  activeId,
   onLoad,
+  onDelete,
   onClose,
 }: {
   records: ProjectRecord[];
+  activeId: string | null;
   onLoad(id: string): void;
+  onDelete(id: string): void;
   onClose(): void;
 }) {
+  const [confirming, setConfirming] = useState<string | null>(null);
   return (
     <Modal
       title="我的整理项目"
-      subtitle="项目仅存放在 FileCanvas 自身的数据目录中。"
+      subtitle="项目仅存放在 FileCanvas 自身的数据目录中。删除项目记录不会改动文件夹和文件。"
       onClose={onClose}
     >
       <div className="project-list">
         {!records.length && <div className="quiet-empty">还没有保存的项目</div>}
         {records.map((p) => (
-          <button className="project-item" key={p.id} onClick={() => onLoad(p.id)}>
-            <FolderOpen size={24} />
-            <div>
-              <strong>{p.name}</strong>
-              <span>{p.rootPath}</span>
-              <small>{new Date(p.updatedAt).toLocaleString('zh-CN')}</small>
-            </div>
-          </button>
+          <div className="project-row" key={p.id}>
+            <button className="project-item" onClick={() => onLoad(p.id)}>
+              <FolderOpen size={24} />
+              <div>
+                <strong>
+                  {p.name}
+                  {p.demo ? '（示例）' : ''}
+                </strong>
+                <span>{p.rootPath}</span>
+                <small>{new Date(p.updatedAt).toLocaleString('zh-CN')}</small>
+              </div>
+            </button>
+            {p.id === activeId ? (
+              <span className="tag neutral">正在打开</span>
+            ) : confirming === p.id ? (
+              <span className="project-confirm">
+                <button
+                  className="button small danger-text"
+                  onClick={() => {
+                    setConfirming(null);
+                    onDelete(p.id);
+                  }}
+                >
+                  确定删除记录
+                </button>
+                <button className="button small" onClick={() => setConfirming(null)}>
+                  取消
+                </button>
+              </span>
+            ) : (
+              <button
+                className="icon-button"
+                title="删除这条项目记录，不改动文件夹和文件"
+                aria-label={`删除项目记录 ${p.name}`}
+                onClick={() => setConfirming(p.id)}
+              >
+                <Trash2 size={16} />
+              </button>
+            )}
+          </div>
         ))}
       </div>
     </Modal>

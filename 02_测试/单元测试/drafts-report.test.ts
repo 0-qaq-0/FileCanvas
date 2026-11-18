@@ -43,7 +43,7 @@ describe('explainable classification drafts', () => {
     for (const e of entries) expect(draft.next!.project.nodes[e.entry.id].source).toEqual(e.entry);
   });
   it('classifies only current-level files and reuses an existing destination folder', () => {
-    let state = addFolder(setup(), '图片', null);
+    const state = addFolder(setup(), '图片', null);
     const folder = Object.values(state.project.nodes).find((n) => n.name === '图片')!;
     const draft = buildClassificationDraft(state, null, 'type');
     expect(Object.values(draft.next!.project.nodes).filter((n) => n.name === '图片')).toHaveLength(

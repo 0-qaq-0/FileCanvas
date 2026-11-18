@@ -1,0 +1,37 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    # Hard links, paths and the packaged app are Windows-specific, so everything runs on Windows.
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Type check
+        run: npm run typecheck
+      - name: Lint
+        run: npm run lint
+      - name: Formatting
+        run: npm run format:check
+      - name: Unit tests
+        run: npm test
+      # test:simple builds first, then drives the real Electron window.
+      - name: Build and desktop check
+        run: npm run test:simple
+      - name: Keep the desktop check's screenshots when it fails
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-results
+          path: 03_测试结果/
+          if-no-files-found: ignore

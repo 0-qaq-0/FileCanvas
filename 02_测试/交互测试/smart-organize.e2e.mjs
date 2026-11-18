@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import { createHash } from 'node:crypto';
+import { finishReport, selectionAction } from './ui-helpers.mjs';
 
 // Everyday flow on a folder that looks like Downloads: suggestion strip -> saved rules
 // (add, count, reorder, nested folder, rules.json on disk, adopt/undo) -> recipe preview
@@ -37,6 +38,11 @@ for (const [name, age] of Object.entries(files)) {
     await fs.utimes(file, old, old);
   }
 }
+// The suggestion strip is off by default; this suite is about the flow that starts from it.
+await fs.writeFile(
+  path.join(data, 'preferences.json'),
+  JSON.stringify({ version: 1, preferences: { showSuggestions: true } }),
+);
 const env = {
   ...process.env,
   FILECANVAS_E2E: '1',
@@ -119,13 +125,10 @@ try {
 
   // 1c. Saved rules: write rules, see live counts, adopt as one undo step, nothing on disk.
   const rulesFile = path.join(data, 'rules.json');
-  await page.getByRole('button', { name: '分类草案', exact: true }).click();
-  const rulesDraft = page.getByRole('dialog', { name: '先生成一份分类草案' });
-  await rulesDraft.getByRole('button', { name: /我的规则/ }).click();
-  await expect(rulesDraft.getByRole('button', { name: /我的规则/ })).toHaveAttribute(
-    'aria-pressed',
-    'true',
-  );
+  await page.getByRole('button', { name: '自动分类', exact: true }).click();
+  const rulesDraft = page.getByRole('dialog', { name: '自动分类', exact: true });
+  await rulesDraft.getByLabel('分类方式').selectOption('custom');
+  await expect(rulesDraft.getByLabel('分类方式')).toHaveValue('custom');
   await expect(rulesDraft).toContainText('还没有规则');
   await page.screenshot({ path: `${shots}/01c0-我的规则-空列表.png` });
   const addRule = async (rule) => {
@@ -202,8 +205,8 @@ try {
   await expect(page.locator('.statusbar')).toContainText('12 个文件 · 0 个文件夹');
   await closeToast();
   // Reopening the dialog reads the rules back from disk.
-  await page.getByRole('button', { name: '分类草案', exact: true }).click();
-  await rulesDraft.getByRole('button', { name: /我的规则/ }).click();
+  await page.getByRole('button', { name: '自动分类', exact: true }).click();
+  await rulesDraft.getByLabel('分类方式').selectOption('custom');
   await expect(rulesDraft.locator('.rule-row')).toHaveCount(2);
   await expect(ruleRow('旧文件')).toContainText('命中 2 个');
   await page.keyboard.press('Escape');
@@ -215,11 +218,10 @@ try {
 
   // 2. The preview is grouped by target folder and a group can be switched off.
   await strip.getByRole('button', { name: /按文件类型/ }).click();
-  const draft = page.getByRole('dialog', { name: '先生成一份分类草案' });
-  await expect(draft.getByRole('button', { name: /按文件类型/ })).toHaveAttribute(
-    'aria-pressed',
-    'true',
-  );
+  const draft = page.getByRole('dialog', { name: '自动分类', exact: true });
+  await expect(draft.getByLabel('分类方式')).toHaveValue('type');
+  // Types with a single file merge into 其他 by default; this flow checks them one by one.
+  await draft.getByLabel('零散类型合并到“其他”').uncheck();
   await expect(draft).toContainText('12 个文件');
   const pdfSwitch = draft.getByRole('switch', { name: '整理到 PDF' });
   await expect(pdfSwitch).toHaveAttribute('aria-checked', 'true');
@@ -229,7 +231,7 @@ try {
   await draft.locator('.draft-group-title', { hasText: '图片' }).click();
   await expect(draft).toContainText('老照片.png');
   // Clicking the active recipe again keeps the switches as they are.
-  await draft.getByRole('button', { name: /按文件类型/ }).click();
+  await draft.getByLabel('分类方式').selectOption('type');
   await expect(pdfSwitch).toHaveAttribute('aria-checked', 'false');
   await page.screenshot({ path: `${shots}/02-分组预览与开关.png` });
   expect(await snapshot()).toEqual(original);
@@ -254,7 +256,7 @@ try {
   await page.screenshot({ path: `${shots}/03-筛选.png` });
   await page.getByRole('button', { name: '选中匹配项', exact: true }).click();
   await expect(page.locator('.selection-toolbar')).toContainText('已选择 3 项');
-  await page.getByRole('button', { name: '移入新文件夹', exact: true }).click();
+  await selectionAction(page, '移入新文件夹');
   const collect = page.getByRole('dialog', { name: '把 3 项移入新文件夹' });
   await expect(collect.getByLabel('名称')).toHaveValue('图片');
   await collect.getByLabel('名称').fill('旅行照片');
@@ -269,7 +271,7 @@ try {
   await filter.fill('发票');
   await expect(page.locator('.filter-count')).toHaveText('2 项匹配');
   await page.getByRole('button', { name: '选中匹配项', exact: true }).click();
-  await page.getByRole('button', { name: '批量重命名', exact: true }).click();
+  await selectionAction(page, '批量重命名');
   const rename = page.getByRole('dialog', { name: '批量重命名 2 项' });
   await rename.getByLabel('命名模板').fill('财务_{n}');
   await expect(rename).toContainText('财务_01.pdf');
@@ -286,13 +288,13 @@ try {
   pass('批量重命名实时预览、非法名称禁用应用、扩展名保留；应用前磁盘不变');
 
   // 5. Apply for real, check the paths on disk, then restore.
-  await page.getByRole('button', { name: /检查并应用/ }).click();
+  await page.getByRole('button', { name: /预览并应用/ }).click();
   await expect(page.getByRole('dialog', { name: '预览整理结果' })).toBeVisible();
   await closeToast();
   await page.screenshot({ path: `${shots}/06-应用前核对.png` });
   await page.getByRole('button', { name: '应用到本地文件', exact: true }).click();
-  await expect(page.getByRole('dialog')).toHaveCount(0);
-  await expect(page.getByRole('status')).toContainText('已应用并核验');
+  await finishReport(page);
+  await expect(page.locator('.canvas-safe')).toContainText('已应用并核验');
   const applied = await snapshot();
   const expectedPaths = [
     '财务_01.pdf',
@@ -324,18 +326,18 @@ try {
   pass('恢复上次文件移动后，目录树与原始文件摘要完全一致');
   // 6. The same engine creates the nested folder chain on disk, and restoring removes it.
   await closeToast();
-  await page.getByRole('button', { name: '分类草案', exact: true }).click();
-  await rulesDraft.getByRole('button', { name: /我的规则/ }).click();
+  await page.getByRole('button', { name: '自动分类', exact: true }).click();
+  await rulesDraft.getByLabel('分类方式').selectOption('custom');
   await expect(rulesDraft.locator('.rule-row')).toHaveCount(2);
   await rulesDraft.getByRole('button', { name: '采用草案到画布' }).click();
   await expect(page.locator('.statusbar')).toContainText('12 个文件 · 3 个文件夹');
   await closeToast();
-  await page.getByRole('button', { name: /检查并应用/ }).click();
+  await page.getByRole('button', { name: /预览并应用/ }).click();
   await expect(page.getByRole('dialog', { name: '预览整理结果' })).toBeVisible();
   await closeToast();
   await page.getByRole('button', { name: '应用到本地文件', exact: true }).click();
-  await expect(page.getByRole('dialog')).toHaveCount(0);
-  await expect(page.getByRole('status')).toContainText('已应用并核验');
+  await finishReport(page);
+  await expect(page.locator('.canvas-safe')).toContainText('已应用并核验');
   const chained = await snapshot();
   const at = (...parts) => parts.join(path.sep);
   expect(chained['财务']).toBe('folder');

@@ -146,7 +146,7 @@ it('rolls back completed moves if a later move fails, preserving all original co
     return original(source, target);
   });
   await expect(disk.apply(root, moveNodes(s, ids, folder.id).project)).rejects.toThrow(
-    'injected failure',
+    '自动恢复到原位置',
   );
   expect(await fs.readFile(path.join(root, '待整理', '方案.md'), 'utf8')).toContain('校园照片');
   expect(await fs.readFile(path.join(root, '待整理', '说明.txt'), 'utf8')).toBe('交付 JPG');

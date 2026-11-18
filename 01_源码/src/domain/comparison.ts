@@ -62,3 +62,10 @@ export function comparePlan(nodes: NodeMap, rootPath: string): PlanComparison {
   }
   return { before: summarize(before), after: summarize(after) };
 }
+
+/** File name for a saved before/after image, stamped with the user's local time to the minute. */
+export function comparisonImageName(at: Date): string {
+  const two = (n: number) => String(n).padStart(2, '0');
+  const stamp = `${at.getFullYear()}${two(at.getMonth() + 1)}${two(at.getDate())}${two(at.getHours())}${two(at.getMinutes())}`;
+  return `FileCanvas-整理前后对比-${stamp}.png`;
+}

@@ -48,12 +48,30 @@ export class ProjectStorage {
       if (!filename.endsWith('.json')) continue;
       try {
         const p = await this.load(filename.slice(0, -5));
-        records.push({ id: p.id, name: p.name, rootPath: p.rootPath, updatedAt: p.updatedAt });
+        records.push({
+          id: p.id,
+          name: p.name,
+          rootPath: p.rootPath,
+          updatedAt: p.updatedAt,
+          ...(p.demo ? { demo: true } : {}),
+        });
       } catch {
         /* damaged projects remain untouched */
       }
     }
     return records.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  }
+  /** Forgets a saved project: only FileCanvas' own record, never the folder or its files. */
+  async remove(id: string): Promise<void> {
+    const file = this.filename(id);
+    const pending = this.queue
+      .catch(() => {})
+      .then(async () => {
+        await noLinks(this.directory, file);
+        await fs.rm(file, { force: true });
+      });
+    this.queue = pending;
+    await pending;
   }
   async last(): Promise<Project | null> {
     try {

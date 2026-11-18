@@ -141,7 +141,7 @@ describe('read-only filesystem and persistence', () => {
   it('D: denies paths outside root, spoofed IDs, illegal names, and project storage traversal', async () => {
     expect(() => checkPath(root, path.join(root, '..', 'outside'))).toThrow('超出');
     await expect(importPaths(root, [appData])).rejects.toThrow('超出');
-    let state = importEntries(
+    const state = importEntries(
       workspace(createProject(root)),
       await importPaths(root, [path.join(root, 'A.jpg')]),
       null,

@@ -38,6 +38,7 @@ import {
 } from 'lucide-react';
 import type {
   ApiResult,
+  ImportSummary,
   KnownFolder,
   NodeMap,
   Preview,
@@ -65,6 +66,9 @@ import {
   moveToNewFolder,
   preferredColumns,
   setGridColumns,
+  hasPendingPlan,
+  pendingNodes,
+  MAX_NODES,
 } from './domain/workspace';
 import { columnsForWidth } from './domain/canvas-layout';
 import { comparePlan } from './domain/comparison';
@@ -73,6 +77,7 @@ import type { ApplyReport } from './components/ReportDialog';
 import { Browser } from './components/Browser';
 import { Canvas } from './components/ExpandedCanvas';
 import { Modal, MoveDialog, PreviewDialog, ProjectsDialog } from './components/Dialogs';
+import { HelpDialog } from './components/HelpDialog';
 import { DraftDialog } from './components/DraftDialog';
 import { BatchRenameDialog } from './components/BatchRenameDialog';
 import { ContextMenu } from './components/ContextMenu';
@@ -121,6 +126,16 @@ function unwrap<T>(response: ApiResult<T>): T {
   if (!response.ok) throw new Error(response.error ?? '操作失败');
   return response.data as T;
 }
+// What was left out of an import, in the user's words; empty when everything came in.
+function importNotice(summary: ImportSummary, overflow = 0): string {
+  return [
+    overflow
+      ? `文件夹超过 ${MAX_NODES} 项，先加入了最近修改的部分，另有 ${overflow} 项未加入。`
+      : '',
+    summary.limited ? '内容较多的子文件夹没有完整加入，这些文件夹暂时不能整体移动。' : '',
+    summary.skipped ? `${summary.skipped} 个无法读取或属于链接的条目已跳过。` : '',
+  ].join('');
+}
 export default function App() {
   const [state, setState] = useState<Workspace | null>(null);
   const current = useRef<Workspace | null>(null);
@@ -157,6 +172,10 @@ export default function App() {
   const [places, setPlaces] = useState<KnownFolder[]>([]);
   const [openMenu, setOpenMenu] = useState<{ x: number; y: number } | null>(null);
   const [dropping, setDropping] = useState(false);
+  const pageDrag = useRef(false);
+  const [externalChanges, setExternalChanges] = useState(0);
+  const lastExternalCheck = useRef(0);
+  const needsRecovery = useRef(false);
   const [report, setReport] = useState<ApplyReport | null>(null);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [showUnchanged, setShowUnchanged] = useState(false);
@@ -193,6 +212,7 @@ export default function App() {
     const result = await window.fileCanvas.operationStatus(id);
     if (current.current?.project.id !== id) return;
     if (result.ok) {
+      needsRecovery.current = !!result.data?.needsRecovery;
       setOperation(result.data ?? null);
       setCanUndoDisk(!!result.data?.canUndo);
     } else {
@@ -238,6 +258,8 @@ export default function App() {
       setCanUndoDisk(false);
       setProblem('');
       setFilter('');
+      setExternalChanges(0);
+      needsRecovery.current = false;
     }
     current.current = next;
     setState(next);
@@ -301,10 +323,27 @@ export default function App() {
     if (state) void persist(state.project).catch(() => {});
   }, [state?.project]);
   useEffect(() => {
-    if (state) void refreshOperation();
+    if (window.fileCanvas) return window.fileCanvas.onOperationProgress(setProgress);
+  }, []);
+  // Files change outside the program all the time. This only reads and reports; the plan changes
+  // when the user adopts the refresh.
+  async function lookForExternalChanges() {
+    const project = current.current?.project;
+    if (!project || operationBusy.current || needsRecovery.current) return;
+    lastExternalCheck.current = Date.now();
+    const result = await window.fileCanvas.prepareRefresh(project).catch(() => null);
+    if (result?.ok && current.current?.project.nodes === project.nodes)
+      setExternalChanges(result.data?.changes.length ?? 0);
+  }
+  useEffect(() => {
+    if (state) void refreshOperation().then(lookForExternalChanges);
   }, [state?.project.id]);
   useEffect(() => {
-    if (window.fileCanvas) return window.fileCanvas.onOperationProgress(setProgress);
+    function returned() {
+      if (Date.now() - lastExternalCheck.current > 15000) void lookForExternalChanges();
+    }
+    window.addEventListener('focus', returned);
+    return () => window.removeEventListener('focus', returned);
   }, []);
   useEffect(() => {
     if (state) updateView({ parentId, showBrowser, focused });
@@ -319,11 +358,22 @@ export default function App() {
       }
       void Promise.all([persist(), prefsTimer.current ? savePrefsNow() : null])
         .then(() => window.fileCanvas.finishClose(true))
-        .catch(() => {
-          window.fileCanvas.finishClose(false);
-          notify('最后一次保存失败，窗口保持打开。请保存成功后再关闭。');
-        });
+        .catch(() => window.fileCanvas.finishClose(false, true));
     });
+  }, []);
+  useEffect(() => {
+    const started = () => {
+      pageDrag.current = true;
+    };
+    const ended = () => {
+      pageDrag.current = false;
+    };
+    window.addEventListener('dragstart', started);
+    window.addEventListener('dragend', ended);
+    return () => {
+      window.removeEventListener('dragstart', started);
+      window.removeEventListener('dragend', ended);
+    };
   }, []);
   useEffect(() => {
     if (!toast) return;
@@ -345,7 +395,17 @@ export default function App() {
         setDialog(null);
         return;
       }
+      if (event.key === 'F5' && state && !operation?.needsRecovery) {
+        event.preventDefault();
+        checkRefresh();
+        return;
+      }
       if (event.ctrlKey || event.metaKey) {
+        if (event.key.toLowerCase() === 'o') {
+          event.preventDefault();
+          openFolder();
+          return;
+        }
         if (event.key === ',') {
           event.preventDefault();
           setDialog('settings');
@@ -396,11 +456,15 @@ export default function App() {
         event.preventDefault();
         setDialog('batch');
       }
-      if (event.key === 'Escape') setSelected([]);
+      if (event.key === 'Escape') {
+        // Focus mode hides the header, so Esc has to be a way out of it.
+        if (!selected.length && focused) setFocused(false);
+        setSelected([]);
+      }
     }
     window.addEventListener('keydown', keyboard);
     return () => window.removeEventListener('keydown', keyboard);
-  }, [state, dialog, selected, parentId, busy, menu, tour]);
+  }, [state, dialog, selected, parentId, busy, menu, tour, operation, focused]);
   useEffect(() => {
     function dismiss(event: PointerEvent | KeyboardEvent) {
       if (event instanceof KeyboardEvent && event.key !== 'Escape') return;
@@ -439,45 +503,49 @@ export default function App() {
     if (!current.current) setGridColumns(columnsForWidth(window.innerWidth));
     return preferredColumns();
   }
-  // The dialog, a common place and a dropped folder all open a new project the same way.
+  // The dialog, a common place and a dropped folder all open a folder the same way.
   function openFolder(
-    choose: () => Promise<ApiResult<Project | null>> = () => window.fileCanvas.openRoot(),
+    choose: () => Promise<ApiResult<Project | null>> = () =>
+      window.fileCanvas.openRoot(canvasColumns()),
   ) {
     void run(async () => {
       await persist();
       const project = unwrap(await choose());
-      if (project && Object.keys(project.nodes).length) {
-        // The folder still had an unapplied plan, so that project came back instead of a new one.
-        replace(workspace(project));
-        enter(null);
-        setSelected([]);
-        setPreview(null);
-        setExportPath(null);
-        setInspectId(null);
-        setShowAi(false);
-        notify('已回到这个文件夹上次没应用的整理计划。外部有新文件时，用“刷新并核对”加入。');
-      } else if (project) {
-        const entries = unwrap(await window.fileCanvas.listDirectory(project.rootPath));
+      if (!project) return;
+      let next = workspace(project);
+      let notice = '';
+      let browse = false;
+      if (Object.keys(project.nodes).length) {
+        // The folder already had a project, so that one came back instead of a new one: as it
+        // was when its plan is still unapplied, otherwise already updated to the folder's contents.
+        notice = hasPendingPlan(project)
+          ? '已回到这个文件夹上次没应用的整理计划。外部有新文件时，用“刷新并核对”加入。'
+          : '已打开这个文件夹上次的项目，并按文件夹现状更新。';
+      } else {
+        // The folder is already the open one from here on, so a failure below must still end with
+        // this project on screen: otherwise the page and the main process disagree on what is open.
         try {
-          const imported = unwrap(
+          const listing = unwrap(await window.fileCanvas.listDirectory(project.rootPath));
+          const summary = unwrap(
             await window.fileCanvas.importPaths(
-              entries.filter((e) => !e.blocked).map((e) => e.path),
+              listing.filter((e) => !e.blocked).map((e) => e.path),
             ),
           );
           canvasColumns();
-          replace(importEntries(workspace(project), imported, null));
+          next = importEntries(next, summary.entries, null);
+          notice = importNotice(summary, listing.find((e) => e.overflow)?.overflow);
         } catch (e) {
-          replace(workspace(project));
-          setShowBrowser(true);
-          notify(`文件夹已打开，请从文件栏分批加入：${(e as Error).message}`);
+          browse = true;
+          notice = `文件夹已打开，请从文件栏分批加入：${(e as Error).message}`;
         }
-        setParentId(null);
-        setSelected([]);
-        setPreview(null);
-        setExportPath(null);
-        setInspectId(null);
-        setShowAi(false);
       }
+      replace(next);
+      if (browse) setShowBrowser(true);
+      enter(null);
+      setPreview(null);
+      setExportPath(null);
+      setShowAi(false);
+      if (notice) notify(notice);
     });
   }
   function loadProject(id: string) {
@@ -492,7 +560,7 @@ export default function App() {
   }
   // Newest project per folder, so opening 下载 several times shows it once.
   const recent = records
-    .filter((r, i) => records.findIndex((o) => o.rootPath === r.rootPath) === i)
+    .filter((r, i) => !r.demo && records.findIndex((o) => o.rootPath === r.rootPath) === i)
     .slice(0, 5);
   function refreshPlaces() {
     void window.fileCanvas
@@ -517,7 +585,7 @@ export default function App() {
         hint: place.path,
         icon: place.id === 'desktop' ? <Monitor size={14} /> : <Download size={14} />,
         group: index === 0,
-        onClick: () => openFolder(() => window.fileCanvas.openKnown(place.id)),
+        onClick: () => openFolder(() => window.fileCanvas.openKnown(place.id, canvasColumns())),
       })),
       ...recent
         .filter((r) => r.id !== state?.project.id)
@@ -533,11 +601,22 @@ export default function App() {
   }
   // Dropping a folder from Explorer anywhere on the welcome page opens it.
   function dropToOpen(event: React.DragEvent) {
+    if (!canDropFolder(event)) return;
     event.preventDefault();
     setDropping(false);
     const file = event.dataTransfer.files[0];
     if (!file) return notify('请从资源管理器拖入一个文件夹。');
-    openFolder(() => window.fileCanvas.openDropped(file));
+    openFolder(() => window.fileCanvas.openDropped(file, canvasColumns()));
+  }
+  // Only a drag from outside the window: dragging something on the page never started here.
+  function canDropFolder(event: React.DragEvent) {
+    return (
+      !pageDrag.current &&
+      event.dataTransfer.types.includes('Files') &&
+      !busy &&
+      !tour &&
+      (!dialog || dialog === 'settings')
+    );
   }
   async function openDemo(quiet = false) {
     let created = false;
@@ -570,15 +649,15 @@ export default function App() {
   async function add(paths: string[], destination = parentId, position?: { x: number; y: number }) {
     await run(async () => {
       if (!current.current) return;
-      const entries = unwrap(await window.fileCanvas.importPaths(paths));
       const before = Object.keys(current.current.project.nodes).length;
-      const next = importEntries(current.current, entries, destination, position);
+      const summary = unwrap(await window.fileCanvas.importPaths(paths, MAX_NODES - before));
+      const next = importEntries(current.current, summary.entries, destination, position);
       replace(next);
       const count = Object.keys(next.project.nodes).length - before;
       notify(
-        count
+        (count
           ? `已加入 ${count} 个条目；原始文件保持不变。`
-          : '这些文件已经在画布中，无需重复加入。',
+          : '这些文件已经在画布中，无需重复加入。') + importNotice(summary),
       );
     });
   }
@@ -879,6 +958,7 @@ export default function App() {
       replace(workspace(project));
       enter(null);
       setCanUndoDisk(false);
+      setExternalChanges(0);
       setHighlighted(null);
       setDialog(null);
       notify('已撤销上次磁盘整理，文件恢复到原位置。');
@@ -898,14 +978,26 @@ export default function App() {
     });
   }
   function remove() {
-    edit((s) =>
-      commit(s, '移出画布', (nodes) => {
+    edit((s) => {
+      const sources: string[] = [];
+      const next = commit(s, '移出画布', (nodes) => {
         const removed = Object.keys(nodes).filter((id) =>
           selected.some((parent) => isDescendant(nodes, id, parent)),
         );
-        removed.forEach((id) => delete nodes[id]);
-      }),
-    );
+        for (const id of removed) {
+          if (nodes[id].source) sources.push(id);
+          delete nodes[id];
+        }
+      });
+      const removedIds = [...new Set([...(s.project.view?.removedIds ?? []), ...sources])];
+      return {
+        ...next,
+        project: {
+          ...next.project,
+          view: { ...next.project.view, removedIds: removedIds.slice(-MAX_NODES) },
+        },
+      };
+    });
     setSelected([]);
     notify('已从虚拟画布移出，可撤销。硬盘文件保持不变。');
   }
@@ -918,18 +1010,7 @@ export default function App() {
     nav = nodes[nav].parentId;
   }
   const fileCount = Object.values(nodes).filter((n) => n.kind === 'file').length;
-  const pendingCount = Object.values(nodes).filter((n) => {
-    if (!n.source) return true;
-    const parts = [n.name];
-    let parent = n.parentId;
-    while (parent && nodes[parent]) {
-      parts.unshift(nodes[parent].name);
-      parent = nodes[parent].parentId;
-    }
-    return (
-      `${state!.project.rootPath.replace(/[\\/]$/, '')}\\${parts.join('\\')}` !== n.source.path
-    );
-  }).length;
+  const pendingCount = state ? pendingNodes(state.project).length : 0;
   const filterResult = state ? filterLayer(nodes, parentId, filter) : null;
   const tipKey = `${state?.project.id ?? ''}:${parentId ?? ''}`;
   const tipData = state
@@ -951,6 +1032,16 @@ export default function App() {
   return (
     <div
       className={`app-shell canvas-first bg-${prefs.background} ${focused ? 'focus-mode' : ''} ${dialog ? 'has-dialog' : ''} ${prefs.showHints ? '' : 'no-hints'} ${prefs.reduceMotion ? 'reduce-motion' : ''}`}
+      onDragOver={(e) => {
+        if (!canDropFolder(e)) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'copy';
+        setDropping(true);
+      }}
+      onDragLeave={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node)) setDropping(false);
+      }}
+      onDrop={dropToOpen}
     >
       <header className={`main-header ${state ? '' : 'welcome-header'}`}>
         <div className="brand">
@@ -1198,11 +1289,33 @@ export default function App() {
                   <ShieldCheck size={13} />
                   尚未应用 · 本地文件未改动
                 </span>
-              ) : (
+              ) : operation?.status === 'applied' || !externalChanges ? (
                 <span className="canvas-safe">
                   <ShieldCheck size={13} />
                   {operation?.status === 'applied' ? '已应用并核验' : '当前路径与本地一致'}
                 </span>
+              ) : null}
+              {focused && (
+                <button
+                  className="button small"
+                  title="退出专注，也可以按 Esc"
+                  onClick={() => setFocused(false)}
+                >
+                  <Minimize2 size={14} />
+                  退出专注
+                </button>
+              )}
+              {externalChanges > 0 && !operation?.needsRecovery && (
+                <button
+                  className="external-changes"
+                  data-testid="external-changes"
+                  disabled={busy}
+                  title="文件夹里的文件在 FileCanvas 之外发生了变化。点这里核对后再决定是否更新。"
+                  onClick={checkRefresh}
+                >
+                  <RefreshCw size={13} />
+                  文件夹有 {externalChanges} 处变化
+                </button>
               )}
               {canUndoDisk && (
                 <button
@@ -1247,11 +1360,13 @@ export default function App() {
                 <strong>
                   {operation?.needsRecovery
                     ? '上次整理需要恢复'
-                    : pendingCount
-                      ? `尚未应用 · ${pendingCount} 项变化`
-                      : operation?.status === 'applied'
-                        ? '已应用并核验'
-                        : '当前路径与本地一致'}
+                    : problem
+                      ? '上一步没有完成'
+                      : pendingCount
+                        ? `尚未应用 · ${pendingCount} 项变化`
+                        : operation?.status === 'applied'
+                          ? '已应用并核验'
+                          : '当前路径与本地一致'}
                 </strong>
                 <span>
                   {problem ||
@@ -1464,26 +1579,7 @@ export default function App() {
           }
         </main>
       ) : (
-        <main
-          className={`welcome ${dropping ? 'is-dropping' : ''}`}
-          onDragOver={(e) => {
-            if (!e.dataTransfer.types.includes('Files')) return;
-            e.preventDefault();
-            e.dataTransfer.dropEffect = 'copy';
-            setDropping(true);
-          }}
-          onDragLeave={(e) => {
-            if (!e.currentTarget.contains(e.relatedTarget as Node)) setDropping(false);
-          }}
-          onDrop={dropToOpen}
-        >
-          {dropping && (
-            <div className="welcome-drop" data-testid="welcome-drop">
-              <FolderOpen size={34} />
-              <strong>松手，打开这个文件夹</strong>
-              <span>只会读取文件信息，确认应用前不会移动任何文件</span>
-            </div>
-          )}
+        <main className={`welcome ${dropping ? 'is-dropping' : ''}`}>
           <div className="welcome-hero">
             <div className="welcome-copy">
               <span className="welcome-eyebrow">
@@ -1544,7 +1640,9 @@ export default function App() {
                       className="button welcome-place"
                       title={place.path}
                       disabled={starting || busy}
-                      onClick={() => openFolder(() => window.fileCanvas.openKnown(place.id))}
+                      onClick={() =>
+                        openFolder(() => window.fileCanvas.openKnown(place.id, canvasColumns()))
+                      }
                     >
                       {place.id === 'desktop' ? <Monitor size={15} /> : <Download size={15} />}
                       整理{place.label}
@@ -1580,6 +1678,16 @@ export default function App() {
             <WelcomeArt />
           </div>
         </main>
+      )}
+      {dropping && (
+        <div className="welcome-drop" data-testid="welcome-drop">
+          <FolderOpen size={34} />
+          <strong>松手，打开这个文件夹</strong>
+          <span>
+            只会读取文件信息，确认应用前不会移动任何文件
+            {state ? '；当前项目已自动保存' : ''}
+          </span>
+        </div>
       )}
       <footer className="statusbar">
         <span className="status-path" title={state?.project.rootPath}>
@@ -1710,7 +1818,19 @@ export default function App() {
         </Modal>
       )}
       {dialog === 'projects' && (
-        <ProjectsDialog records={records} onClose={() => setDialog(null)} onLoad={loadProject} />
+        <ProjectsDialog
+          records={records}
+          activeId={state?.project.id ?? null}
+          onClose={() => setDialog(null)}
+          onLoad={loadProject}
+          onDelete={(id) =>
+            void run(async () => {
+              unwrap(await window.fileCanvas.deleteProject(id));
+              setRecords(unwrap(await window.fileCanvas.projects()));
+              notify('已删除这条项目记录，文件夹和文件没有改动。');
+            })
+          }
+        />
       )}
       {dialog === 'batch' && (
         <BatchRenameDialog
@@ -1783,6 +1903,7 @@ export default function App() {
               enter(null);
               setDialog(null);
               setCanUndoDisk(true);
+              setExternalChanges(0);
               setHighlighted(null);
               setReport({
                 comparison,
@@ -1821,6 +1942,7 @@ export default function App() {
           onClose={() => setDialog(null)}
           onAdopt={() => {
             replace(workspace(refreshReview.project));
+            setExternalChanges(0);
             setDialog(null);
             setCanvasRevision((v) => v + 1);
             setInspectId(null);
@@ -1861,49 +1983,11 @@ export default function App() {
         />
       )}
       {dialog === 'help' && (
-        <Modal title="先虚拟整理，再核对结果" onClose={() => setDialog(null)}>
-          <div className="help-content">
-            <p className="help-tutorial">
-              刚上手？
-              <button className="text-button" onClick={() => void startTutorial()}>
-                <GraduationCap size={14} />
-                跟着 5 步新手教程走一遍
-              </button>
-            </p>
-            <p>
-              <strong>1. 打开文件夹</strong>
-              <br />
-              文件自动加入画布。文件卡片显示类型与大小；文件夹显示已加入画布的文件数量、合计大小和主要类型。
-            </p>
-            <p>
-              <strong>2. 拖动整理，或自动分类</strong>
-              <br />
-              点文件夹可同屏展开；拖入文件夹即可归类。右键文件可预览、改名或移动，多选后右键可批量处理。右键文件夹可新建子文件夹，右键空白处可新建、全选和排列。不用右键时，可点选中栏的“操作”或“画布选项”。“自动分类”默认按类型。
-            </p>
-            <p>
-              <strong>3. 预览并应用</strong>
-              <br />
-              拖动先修改计划，本地文件保持原位。满意后点击“预览并应用”，核对原路径和目标路径，再点“应用到本地文件”执行。每次最多
-              100 个文件，支持同一本地目录内的移动、改名和新建分类目录。
-            </p>
-            <p>
-              <strong>4. 撤销与恢复</strong>
-              <br />
-              Ctrl+Z / Ctrl+Y
-              撤销和重做尚未应用的修改。已经应用到本地的操作，用“恢复上次文件移动”放回原处。遇到冲突或外部编辑时会停止并提示。
-            </p>
-            <p>
-              <strong>5. 需要时再打开辅助工具</strong>
-              <br />
-              “更多工具”里提供原始文件栏、AI
-              助手、刷新、已保存项目和界面设置（Ctrl+,）。常用视图为画布和列表，平铺、分组可在设置里选择。画布的批量展开和按类型排列在“画布选项”中。
-            </p>
-            <p>
-              Ctrl+F 筛选文件，Ctrl / Shift 多选，F2
-              改名，多选时可批量改名。项目自动保存；重启后保留整理计划，撤销历史从本次打开重新开始。文件夹合计仅涵盖画布内文件，不代表磁盘全部占用。
-            </p>
-          </div>
-        </Modal>
+        <HelpDialog
+          onTutorial={() => void startTutorial()}
+          onClose={() => setDialog(null)}
+          notify={notify}
+        />
       )}
     </div>
   );

@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import { createHash } from 'node:crypto';
+import { finishReport } from '../交互测试/ui-helpers.mjs';
 const { version } = JSON.parse(await fs.readFile('package.json', 'utf8'));
 const results = `03_测试结果/${version}打包验收`;
 await fs.mkdir(results, { recursive: true });
@@ -36,7 +37,7 @@ try {
   await page.screenshot({ path: `${results}/01-欢迎页.png` });
   let demoChecked = false;
   if (process.argv.includes('--demo')) {
-    await page.getByRole('button', { name: '先用 20 个示例文件试一遍' }).click();
+    await page.getByRole('button', { name: '试用示例文件' }).click();
     await expect(page.locator('.statusbar')).toContainText('20 个文件 · 2 个文件夹');
     await expect(page.getByTestId('save-state')).toHaveText('项目已保存');
     const restored = await page.evaluate(() => window.fileCanvas.restore());
@@ -48,7 +49,8 @@ try {
       await fs.readFile(path.join(path.dirname(project.rootPath), '样例清单.json'), 'utf8'),
     );
     await page.screenshot({ path: `${results}/02-文件画布.png` });
-    await page.getByRole('button', { name: '分类草案', exact: true }).click();
+    await page.getByRole('button', { name: '自动分类', exact: true }).click();
+    await page.getByLabel('分类方式').selectOption('content-project');
     await page.getByRole('button', { name: '采用草案到画布' }).click();
     await expect(page.locator('.statusbar')).toContainText('20 个文件 · 6 个文件夹');
     await expect(page.getByTestId('save-state')).toHaveText('项目已保存');
@@ -67,7 +69,7 @@ try {
           .digest('hex'),
       ).toBe(file.sha256);
     expect((await fs.readdir(project.rootPath, { recursive: true })).sort()).toEqual(originalTree);
-    await page.getByRole('button', { name: /检查并应用/ }).click();
+    await page.getByRole('button', { name: /预览并应用/ }).click();
     await page.getByRole('button', { name: '结构对照', exact: true }).click();
     await expect(page.getByTestId('after-tree')).toContainText('02_创作素材');
     await page.screenshot({ path: `${results}/03-应用前结构对照.png` });
@@ -81,8 +83,8 @@ try {
       ).toBe(file.sha256);
     expect(await fs.readdir(project.rootPath)).not.toContain('01_策划资料');
     await page.getByRole('button', { name: '应用到本地文件', exact: true }).click();
-    await expect(page.getByRole('dialog')).toHaveCount(0);
-    await expect(page.getByRole('status')).toContainText('已应用并核验');
+    await finishReport(page);
+    await expect(page.locator('.canvas-safe')).toContainText('已应用并核验');
     await expect(page.getByTestId('save-state')).toHaveText('项目已保存');
     const applied = await page.evaluate(() => window.fileCanvas.restore());
     expect(applied.ok).toBe(true);

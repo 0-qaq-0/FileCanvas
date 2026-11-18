@@ -120,8 +120,8 @@ describe('filtering a canvas level', () => {
     );
   });
   it('selects a matching folder once instead of also selecting what is inside it', () => {
-    let { state, finance } = nested();
-    state = addFolder(state, '财务备份', null);
+    const { state: start, finance } = nested();
+    const state = addFolder(start, '财务备份', null);
     const nodes = state.project.nodes;
     const folders = filterLayer(nodes, null, '财务')!;
     expect(selectableMatches(nodes, folders).sort()).toEqual(

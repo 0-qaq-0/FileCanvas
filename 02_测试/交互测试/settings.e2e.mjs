@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import { createHash } from 'node:crypto';
+import { more } from './ui-helpers.mjs';
 
 // Display settings ("界面设置"): icon size (slider, presets, Ctrl+wheel) with dragging still
 // landing on the right folder, canvas background, card previews, hint strips, reduced motion;
@@ -62,7 +63,7 @@ try {
   const noOverflow = () =>
     page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
   async function openPanel() {
-    await page.getByRole('button', { name: '界面设置' }).click();
+    await more(page, '界面设置');
     await expect(panel()).toBeVisible();
   }
   async function closePanel() {
@@ -70,7 +71,7 @@ try {
     await expect(panel()).toHaveCount(0);
   }
 
-  await page.getByRole('button', { name: '先用 20 个示例文件试一遍' }).click();
+  await page.getByRole('button', { name: '试用示例文件' }).click();
   await expect(page.locator('.statusbar')).toContainText('20 个文件 · 2 个文件夹');
   const records = (await page.evaluate(() => window.fileCanvas.projects())).data;
   const root = records[0].rootPath;
@@ -163,8 +164,8 @@ try {
 
   // 5. Background, previews, hint strips and motion.
   await openPanel();
-  await expect(page.getByTestId('suggestion-bar')).toBeVisible();
-  await expect(page.locator('.canvas-hint')).toBeVisible();
+  await expect(page.getByTestId('suggestion-bar')).toHaveCount(0);
+  await expect(page.locator('.canvas-hint')).toBeHidden();
   expect(await page.locator('.card-thumbnail').count()).toBeGreaterThan(0);
   await panel().getByRole('radio', { name: '网格' }).click();
   await expect(page.locator('.app-shell')).toHaveClass(/bg-grid/);
@@ -174,8 +175,13 @@ try {
   await panel().getByRole('switch', { name: '卡片预览' }).click();
   await expect(page.locator('.card-thumbnail')).toHaveCount(0);
   await expect(page.locator('.card-document')).toHaveCount(0);
+  // Both strips are off by default: turning one on shows it, turning it off hides it again.
+  await panel().getByRole('switch', { name: '整理建议条' }).click();
+  await expect(page.getByTestId('suggestion-bar')).toBeVisible();
   await panel().getByRole('switch', { name: '整理建议条' }).click();
   await expect(page.getByTestId('suggestion-bar')).toHaveCount(0);
+  await panel().getByRole('switch', { name: '底部操作提示' }).click();
+  await expect(page.locator('.canvas-hint')).toBeVisible();
   await panel().getByRole('switch', { name: '底部操作提示' }).click();
   await expect(page.locator('.canvas-hint')).toBeHidden();
   await panel().getByRole('switch', { name: '减少动画' }).click();
@@ -244,8 +250,8 @@ try {
     'aria-checked',
     'true',
   );
-  await expect(page.getByTestId('suggestion-bar')).toBeVisible();
-  await expect(page.locator('.canvas-hint')).toBeVisible();
+  await expect(page.getByTestId('suggestion-bar')).toHaveCount(0);
+  await expect(page.locator('.canvas-hint')).toBeHidden();
   await expect(page.locator('.app-shell')).not.toHaveClass(/reduce-motion/);
   await expect.poll(async () => (await readPrefs()).preferences.iconScale).toBe(1);
   await closePanel();

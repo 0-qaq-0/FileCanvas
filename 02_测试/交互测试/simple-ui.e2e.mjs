@@ -500,10 +500,37 @@ try {
   // The project that is open now is not offered again under the recent projects.
   await expect(openMenu.getByRole('menuitem', { name: '下载', exact: true })).toHaveCount(0);
   await shot('16-打开菜单.png');
+  await page.keyboard.press('Escape');
+  await expect(openMenu).toHaveCount(0);
+  // With nothing left unapplied, opening 下载 again reuses its project and picks up new files,
+  // instead of saving yet another 下载 project.
+  await card('待整理').click({ button: 'right' });
+  await fileMenu().getByRole('menuitem', { name: '移出画布', exact: true }).click();
+  await expect(card('待整理')).toHaveCount(0);
+  await fs.writeFile(path.join(downloads, '新下载.pdf'), '新下载');
+  await page.getByRole('button', { name: '打开文件夹', exact: true }).click();
+  await openMenu.getByRole('menuitem', { name: '示例文件' }).click();
+  await expect(page.locator('.statusbar')).toContainText('共 11 个文件');
+  await page.getByRole('button', { name: '打开文件夹', exact: true }).click();
+  await openMenu.getByRole('menuitem', { name: '整理下载' }).click();
+  await expect(page.locator('.toast')).toContainText('按文件夹现状更新');
+  await expect(card('新下载.pdf')).toHaveCount(1);
+  await expect(page.locator('.statusbar')).toContainText('共 4 个文件');
+  await clearToast();
+  const projects = path.join(data, 'projects');
+  const downloadsRoot = (await fs.realpath(downloads)).toLowerCase();
+  let downloadProjects = 0;
+  for (const name of await fs.readdir(projects))
+    if (name.endsWith('.json') && name !== 'last-project.json') {
+      const saved = JSON.parse(await fs.readFile(path.join(projects, name), 'utf8'));
+      if (saved.rootPath.toLowerCase() === downloadsRoot) downloadProjects++;
+    }
+  expect(downloadProjects).toBe(1);
+  await page.getByRole('button', { name: '打开文件夹', exact: true }).click();
   await openMenu.getByRole('menuitem', { name: '示例文件' }).click();
   await expect(page.locator('.statusbar')).toContainText('共 11 个文件');
   pass(
-    '打开菜单提供下载、桌面和最近项目；系统文件、Office 临时文件和下载中的文件不进入画布；再次整理下载会回到未应用的计划',
+    '打开菜单提供下载、桌面和最近项目；系统文件、Office 临时文件和下载中的文件不进入画布；再次整理下载会回到未应用的计划，没有未应用的修改时沿用同一个项目并加入新文件',
   );
 
   // Show every tutorial step after changing control locations.

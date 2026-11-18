@@ -29,17 +29,21 @@ const api: FileCanvasApi = {
     ipcRenderer.invoke('fc:ai-prepare', project, ids, question),
   askAi: (project, ids, question, organize, context, history) =>
     ipcRenderer.invoke('fc:ai-ask', project, ids, question, organize, context, history),
-  openRoot: () => ipcRenderer.invoke('fc:open-root'),
+  openRoot: (columns) => ipcRenderer.invoke('fc:open-root', columns),
   knownFolders: () => ipcRenderer.invoke('fc:known-folders'),
-  openKnown: (id) => ipcRenderer.invoke('fc:open-known', id),
+  openKnown: (id, columns) => ipcRenderer.invoke('fc:open-known', id, columns),
   // Only a File the user really dropped has a path; the page itself never handles the path.
-  openDropped: (file) => ipcRenderer.invoke('fc:open-dropped', webUtils.getPathForFile(file)),
+  openDropped: (file, columns) =>
+    ipcRenderer.invoke('fc:open-dropped', webUtils.getPathForFile(file), columns),
   saveImage: (rect) => ipcRenderer.invoke('fc:save-image', rect),
   listDirectory: (path) => ipcRenderer.invoke('fc:list', path),
   search: (query) => ipcRenderer.invoke('fc:search', query),
-  importPaths: (paths) => ipcRenderer.invoke('fc:import', paths),
+  importPaths: (paths, room) => ipcRenderer.invoke('fc:import', paths, room),
   save: (project) => ipcRenderer.invoke('fc:save', project),
   projects: () => ipcRenderer.invoke('fc:projects'),
+  deleteProject: (id) => ipcRenderer.invoke('fc:delete-project', id),
+  appInfo: () => ipcRenderer.invoke('fc:app-info'),
+  revealLogs: () => ipcRenderer.invoke('fc:reveal-logs'),
   load: (id) => ipcRenderer.invoke('fc:load', id),
   restore: () => ipcRenderer.invoke('fc:restore'),
   preview: (project) => ipcRenderer.invoke('fc:preview', project),
@@ -59,6 +63,6 @@ const api: FileCanvasApi = {
     ipcRenderer.send('fc:renderer-ready');
     return () => ipcRenderer.removeListener('fc:close-requested', listener);
   },
-  finishClose: (saved) => ipcRenderer.send('fc:finish-close', saved),
+  finishClose: (saved, saveFailed) => ipcRenderer.send('fc:finish-close', saved, saveFailed),
 };
 contextBridge.exposeInMainWorld('fileCanvas', api);

@@ -27,6 +27,7 @@ const files = [
   'tsconfig.json',
   'vite.config.ts',
   'vitest.config.ts',
+  'eslint.config.mjs',
   '.gitignore',
   '.gitattributes',
   '启动开发版.cmd',

@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import { createHash } from 'node:crypto';
+import { blankAction, cardAction, more, selectionAction } from './ui-helpers.mjs';
 const base = await fs.mkdtemp(path.join(os.tmpdir(), 'filecanvas-e2e-'));
 const root = path.join(base, '原始测试文件');
 const data = path.join(base, '应用数据');
@@ -74,10 +75,10 @@ try {
   let page;
   [desktop, page] = await launch();
   await page.getByRole('button', { name: '选择文件夹，开始整理' }).click();
-  await page.getByRole('button', { name: '文件栏', exact: true }).click();
+  await more(page, '原始文件栏');
   await expect(page.getByTestId('source-row')).toHaveCount(10);
   await page.keyboard.press('Control+a');
-  await page.getByRole('button', { name: '移出画布', exact: true }).click();
+  await selectionAction(page, '移出画布');
   const sandbox = await page.evaluate(() => ({
     node: typeof window.require,
     bridge: Object.keys(window.fileCanvas),
@@ -99,11 +100,12 @@ try {
   await expect(source('代码.py')).toBeVisible();
   await source('子目录').getByRole('button', { name: '展开或折叠' }).click();
   await expect(source('代码.py')).toHaveCount(0);
-  await source('A.jpg').dragTo(canvas, { targetPosition: { x: 40, y: 40 } });
+  // A dropped card is centred on the pointer, so these spots leave the canvas corner empty.
+  await source('A.jpg').dragTo(canvas, { targetPosition: { x: 200, y: 200 } });
   await expect(card('A.jpg')).toBeVisible();
-  await source('B.jpg').dragTo(canvas, { targetPosition: { x: 215, y: 40 } });
+  await source('B.jpg').dragTo(canvas, { targetPosition: { x: 400, y: 200 } });
   await expect(page.getByTestId('canvas-card')).toHaveCount(2);
-  await source('A.jpg').dragTo(canvas, { targetPosition: { x: 40, y: 40 } });
+  await source('A.jpg').dragTo(canvas, { targetPosition: { x: 200, y: 200 } });
   await expect(page.getByTestId('canvas-card')).toHaveCount(2);
   pass('真实左侧拖入画布与重复拖入去重通过');
   async function coordinates(name) {
@@ -115,7 +117,7 @@ try {
   const bounds = await canvas.boundingBox();
   await page.mouse.move(bounds.x + 18, bounds.y + 18);
   await page.mouse.down();
-  await page.mouse.move(bounds.x + b0.x + 140, bounds.y + 185, { steps: 12 });
+  await page.mouse.move(bounds.x + b0.x + 140, bounds.y + b0.y + 100, { steps: 12 });
   await page.mouse.up();
   await expect(card('A.jpg')).toHaveAttribute('aria-pressed', 'true');
   await expect(card('B.jpg')).toHaveAttribute('aria-pressed', 'true');
@@ -133,7 +135,7 @@ try {
   await page.keyboard.press('Control+y');
   await expect.poll(async () => (await coordinates('A.jpg')).y).toBe(a1.y);
   pass('B：框选、批量自由拖动和 Ctrl+Z / Ctrl+Y 通过');
-  await page.getByRole('button', { name: '新建文件夹', exact: true }).click();
+  await blankAction(page, '新建文件夹');
   await page.getByRole('textbox', { name: '名称', exact: true }).fill('图片');
   await page.getByRole('button', { name: '创建', exact: true }).click();
   await expect(card('图片')).toBeVisible();
@@ -160,7 +162,7 @@ try {
   expect(await coordinates('B.jpg')).toEqual(b1);
   await enterFolder('图片');
   expect(await coordinates('A.jpg')).toEqual(inside);
-  await page.getByRole('button', { name: /检查并应用/ }).click();
+  await page.getByRole('button', { name: /预览并应用/ }).click();
   const preview = page.getByRole('dialog', { name: '预览整理结果' });
   await expect(preview).toContainText(path.join(root, 'A.jpg'));
   await expect(preview).toContainText(path.join(root, '图片', 'A.jpg'));
@@ -197,8 +199,7 @@ try {
   await expect(page.getByRole('alert')).toContainText('不合法');
   await page.getByRole('button', { name: '取消', exact: true }).click();
   // Cycle rejection through the actual UI, including a failed move into itself.
-  await card('图片').click();
-  await page.getByRole('button', { name: '移动到…', exact: true }).click();
+  await cardAction(page, card('图片'), '移动到…');
   await page
     .getByRole('dialog', { name: '移动到虚拟文件夹' })
     .getByRole('button', { name: '图片', exact: true })
@@ -211,8 +212,8 @@ try {
   await expect(page.getByTestId('save-state')).toHaveText('项目已保存');
   await page.keyboard.press('Escape');
   await page.screenshot({ path: '03_测试结果/workspace.png' });
-  const storedFiles = (await fs.readdir(path.join(data, 'projects'))).filter((n) =>
-    n.endsWith('.json'),
+  const storedFiles = (await fs.readdir(path.join(data, 'projects'))).filter(
+    (n) => n.endsWith('.json') && n !== 'last-project.json',
   );
   expect(storedFiles.length).toBe(1);
   const savedProject = JSON.parse(
@@ -233,11 +234,11 @@ try {
   // These fixture modifications deliberately model changes made outside FileCanvas.
   await fs.mkdir(path.join(root, '图片'));
   await fs.writeFile(path.join(root, '图片', 'A.jpg'), 'external collision');
-  await page.getByRole('button', { name: /检查并应用/ }).click();
+  await page.getByRole('button', { name: /预览并应用/ }).click();
   await expect(page.getByRole('dialog', { name: '预览整理结果' })).toContainText('目标已存在');
   await page.getByRole('button', { name: '返回继续整理' }).click();
   await fs.unlink(path.join(root, 'A.jpg'));
-  await page.getByRole('button', { name: /检查并应用/ }).click();
+  await page.getByRole('button', { name: /预览并应用/ }).click();
   await expect(page.getByRole('dialog', { name: '预览整理结果' })).toContainText('源文件不可用');
   await page.getByRole('button', { name: '返回继续整理' }).click();
   pass('D：预览重新检查外部目标冲突与被删除的源文件');

@@ -4,6 +4,7 @@ import path from 'node:path';
 import os from 'node:os';
 import http from 'node:http';
 import { createHash } from 'node:crypto';
+import { inspect, more } from './ui-helpers.mjs';
 const base = await fs.mkdtemp(path.join(os.tmpdir(), 'filecanvas-e2e-ai-'));
 const data = path.join(base, '应用数据'),
   root = path.join(base, '项目');
@@ -81,7 +82,7 @@ try {
   expect(rect.width).toBeGreaterThan(1250);
   // The suggestion strip and the view tabs now sit above the canvas; 560px still leaves two rows.
   expect(rect.height).toBeGreaterThan(560);
-  await card('拍摄方案.md').click();
+  await inspect(page, card('拍摄方案.md'));
   await expect(page.locator('.text-preview')).toContainText('图书馆和操场');
   await page.getByRole('button', { name: '收起内容预览' }).click();
   await card('参考').click();
@@ -93,20 +94,25 @@ try {
     .click();
   await expect(page.locator('.text-preview')).toContainText('2MB');
   await page.getByRole('button', { name: '收起内容预览' }).click();
-  await card('合同.pdf').click();
+  await inspect(page, card('合同.pdf'));
   await expect(page.locator('.unsupported-preview')).toContainText('暂未提取正文');
   await page.getByRole('button', { name: '收起内容预览' }).click();
   await page.keyboard.press('Escape');
-  await page.getByRole('button', { name: '专注画布', exact: true }).click();
+  await more(page, '专注画布');
   await expect(page.locator('.main-header')).toBeHidden();
   await page.screenshot({ path: '03_测试结果/canvas-focus.png' });
+  // The header is hidden, so the way out has to be right on the canvas, and on the keyboard.
   await page.getByRole('button', { name: '退出专注', exact: true }).click();
+  await expect(page.locator('.main-header')).toBeVisible();
+  await more(page, '专注画布');
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.main-header')).toBeVisible();
   pass('打开即显示画布；本地文本预览、文件夹内文件预览、未支持格式提示与专注模式通过');
-  await page.getByRole('button', { name: '文件栏', exact: true }).click();
+  await more(page, '原始文件栏');
   await expect(page.getByTestId('source-row').first()).toBeVisible();
   await page.getByRole('button', { name: '收起文件栏' }).click();
   await page.screenshot({ path: '03_测试结果/canvas-home.png' });
-  await page.getByRole('button', { name: 'AI 助手', exact: true }).click();
+  await more(page, 'AI 助手');
   await page.getByLabel('常用 AI 服务').selectOption('DeepSeek');
   await expect(page.getByLabel('AI 模型名称')).toHaveValue('deepseek-flash');
   await page.getByLabel('常用 AI 服务').selectOption('Ollama · 本机');
@@ -153,7 +159,7 @@ try {
   expect(await hash()).toBe(original);
   await page.getByRole('button', { name: '收起 AI 助手' }).click();
   await page.setViewportSize({ width: 1000, height: 680 });
-  await page.getByRole('button', { name: 'AI 助手', exact: true }).click();
+  await more(page, 'AI 助手');
   await expect(page.locator('.index-card')).toContainText('已索引 2 份文本');
   await expect(page.locator('.ai-message.assistant').first()).toContainText('2MB');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(

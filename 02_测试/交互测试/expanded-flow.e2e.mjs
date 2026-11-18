@@ -5,6 +5,7 @@ import path from 'node:path';
 import os from 'node:os';
 import http from 'node:http';
 import { createHash } from 'node:crypto';
+import { finishReport, inspect, more, viewOption } from './ui-helpers.mjs';
 await import('../../04_构建脚本/build-electron.mjs');
 const vite = await createServer();
 await vite.listen();
@@ -138,27 +139,34 @@ try {
   await expect.poll(() => parentName('预算.csv')).toBe('已分类');
   await page.keyboard.press('Control+z');
   await expect.poll(() => parentName('预算.csv')).toBe('待整理');
-  await page.getByRole('button', { name: '收起 已分类', exact: true }).click();
-  await dragCard('预算.csv', '已分类', true);
-  await expect.poll(() => parentName('预算.csv')).toBe('已分类');
-  await page.keyboard.press('Control+z');
   await dragCard('验收标准.txt', '已分类');
   await expect.poll(() => parentName('验收标准.txt')).toBe('已分类');
   await page.keyboard.press('Control+z');
-  await page.getByRole('button', { name: '全部收起', exact: true }).click();
+  await expect.poll(() => parentName('验收标准.txt')).toBe('子目录');
+  await viewOption(page, '收起所有文件夹');
   await expect(card('拍摄方案.md')).toHaveCount(0);
-  await card('待整理').click();
+  // An open folder covers the cards beneath it, so a folder is opened by hovering only while the
+  // others are closed: holding a loose file over it for a moment opens it.
+  await dragCard('项目说明.md', '已分类', true);
+  await expect.poll(() => parentName('项目说明.md')).toBe('已分类');
+  await page.keyboard.press('Control+z');
+  await expect.poll(() => parentName('项目说明.md')).toBe(null);
+  await viewOption(page, '收起所有文件夹');
   await card('已分类').click();
+  await card('待整理').click();
   await page.screenshot({ path: '03_测试结果/expanded-containers.png' });
   pass('开发模式：同屏展开两个目录和嵌套目录，跨容器拖动、拖出至根目录、撤销与折叠后恢复通过');
-  await page.getByRole('button', { name: 'AI 助手', exact: true }).click();
+  await more(page, 'AI 助手');
   await page.getByLabel('AI 服务地址').fill(endpoint);
   await page.getByLabel('AI 模型名称').fill('local-fixture-model');
   await page.getByRole('button', { name: '保存并测试连接' }).click();
   await expect(page.getByText('连接成功：模型已返回有效文本。')).toBeVisible();
   await page.getByRole('button', { name: '收起 AI 助手' }).click();
-  await card('拍摄方案.md').click();
+  await inspect(page, card('拍摄方案.md'));
   await expect(page.locator('.text-preview')).toContainText('图书馆');
+  // The AI part stays folded until asked for.
+  await expect(page.locator('.file-ai-consent')).toBeHidden();
+  await page.locator('.inspector-ai summary').click();
   await expect(page.locator('.file-ai-consent')).toBeVisible();
   expect(calls).toHaveLength(1);
   await page.locator('.file-ai-consent input').check();
@@ -194,9 +202,9 @@ try {
     '点击文件自动解释、项目证据、突出推荐、目标高亮、继续追问、采用建议及外部打开接口通过；模型为本机模拟服务',
   );
   await page.getByRole('button', { name: '收起内容预览' }).click();
-  await page.getByRole('button', { name: /检查并应用/ }).click();
+  await page.getByRole('button', { name: /预览并应用/ }).click();
   await page.getByRole('button', { name: '应用到本地文件' }).click();
-  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await finishReport(page);
   expect(digest(await fs.readFile(path.join(root, '已分类', '拍摄方案.md')))).toBe(
     digest(original),
   );
@@ -217,8 +225,8 @@ try {
   await expect(page.getByRole('status')).toContainText('恢复到原位置');
   pass('确认后普通文件实际移动，原文哈希保持不变；通过界面撤销后原路径恢复');
   await page.setViewportSize({ width: 1000, height: 680 });
-  await page.getByRole('button', { name: '展开文件夹', exact: true }).click();
-  await card('拍摄方案.md').click();
+  if (!(await card('拍摄方案.md').count())) await card('待整理').click();
+  await inspect(page, card('拍摄方案.md'));
   await expect(page.locator('.text-preview')).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
     true,

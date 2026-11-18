@@ -3,6 +3,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { readContent, excluded } from './content';
 import { noLinks, validateAuthorized, readEntry } from './filesystem';
+import { writeAtomic } from './operation-plan';
 import { validateName } from '../src/domain/workspace';
 import type {
   AiContext,
@@ -16,7 +17,12 @@ import type {
 } from '../src/domain/types';
 
 export function validateEndpoint(input: string): string {
-  const url = new URL(input);
+  let url: URL;
+  try {
+    url = new URL(input);
+  } catch {
+    throw new Error('接口地址格式不正确，应类似 https://api.deepseek.com/v1。');
+  }
   if (
     url.username ||
     url.password ||
@@ -28,9 +34,30 @@ export function validateEndpoint(input: string): string {
     throw new Error('接口地址需使用 HTTPS；本机服务可用 http://127.0.0.1。不要在地址中放密钥。');
   return url.href.replace(/\/$/, '');
 }
+/**
+ * Models asked for JSON still wrap it in a code fence, reasoning (<think>…</think>) or a sentence
+ * of introduction. Null when there is no JSON object to be found.
+ */
+export function modelJson(text: string): any {
+  const plain = text
+    .replace(/<think>[\s\S]*?<\/think>/gi, '')
+    .replace(/^\s*```(?:json)?\s*/, '')
+    .replace(/\s*```\s*$/, '');
+  for (const candidate of [plain, plain.slice(plain.indexOf('{'), plain.lastIndexOf('}') + 1)]) {
+    try {
+      return JSON.parse(candidate);
+    } catch {}
+  }
+  return null;
+}
 export function parseReply(text: string, allowed: Set<string>): AiReply {
-  const value = JSON.parse(text.replace(/^\s*```(?:json)?\s*/, '').replace(/\s*```\s*$/, ''));
-  if (typeof value.answer !== 'string' || !Array.isArray(value.groups) || value.groups.length > 30)
+  const value = modelJson(text);
+  if (
+    !value ||
+    typeof value.answer !== 'string' ||
+    !Array.isArray(value.groups) ||
+    value.groups.length > 30
+  )
     throw new Error('模型未返回有效的整理方案，请重试或换一个模型。');
   const seen = new Set<string>();
   const folders = new Set<string>();
@@ -127,18 +154,19 @@ export class AiService {
           ? this.secrets.encrypt(input.apiKey.trim())
           : '';
     await fs.mkdir(this.directory, { recursive: true });
-    await noLinks(this.directory, path.join(this.directory, 'ai-settings.json'));
-    await fs.writeFile(
-      path.join(this.directory, 'ai-settings.json'),
-      JSON.stringify({ baseUrl, model, key }, null, 2),
-      'utf8',
-    );
+    await writeAtomic(path.join(this.directory, 'ai-settings.json'), { baseUrl, model, key });
     return this.settings();
   }
   private async complete(messages: { role: string; content: string }[]): Promise<string> {
     const s = await this.stored();
     const baseUrl = validateEndpoint(s.baseUrl);
     if (!s.model) throw new Error('请先在模型设置中填写模型名称。');
+    let key = '';
+    try {
+      if (s.key) key = this.secrets.decrypt(s.key);
+    } catch {
+      throw new Error('保存的密钥无法解密（可能换过系统账号或电脑），请在模型设置中重新填写。');
+    }
     let response: Response;
     try {
       response = await fetch(`${baseUrl}/chat/completions`, {
@@ -147,7 +175,7 @@ export class AiService {
         signal: AbortSignal.timeout(90000),
         headers: {
           'Content-Type': 'application/json',
-          ...(s.key ? { Authorization: `Bearer ${this.secrets.decrypt(s.key)}` } : {}),
+          ...(key ? { Authorization: `Bearer ${key}` } : {}),
         },
         body: JSON.stringify({ model: s.model, messages, stream: false }),
       });
@@ -410,12 +438,8 @@ export class AiService {
         }),
       },
     ]);
-    let v;
-    try {
-      v = JSON.parse(response.replace(/^\s*```(?:json)?\s*/, '').replace(/\s*```\s*$/, ''));
-    } catch {
-      throw new Error('模型没有返回有效的文件解释，请重试。');
-    }
+    const v = modelJson(response);
+    if (v === null) throw new Error('模型没有返回有效的文件解释，请重试。');
     if (
       !v ||
       typeof v.purpose !== 'string' ||

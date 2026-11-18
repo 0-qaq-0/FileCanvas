@@ -16,6 +16,7 @@ import {
   inventoryDigest,
   originalProject,
   rebase,
+  retryTransient,
   scopedInventory,
   statOrNull,
   writeAtomic,
@@ -79,6 +80,8 @@ const byDepth = (a: string, b: string) => a.split(path.sep).length - b.split(pat
 const lower = (p: string) => p.toLowerCase();
 const FOLDER: Fingerprint = { kind: 'folder', identity: '', size: '', modified: '' };
 const PROBE = /^\.filecanvas-probe-[0-9a-f-]{36}-[ab]$/;
+// How many finished operations stay under history/ for troubleshooting.
+const HISTORY_KEPT = 20;
 
 function ancestors(root: string, filename: string): string[] {
   const output: string[] = [];
@@ -154,6 +157,12 @@ export class DiskOperations {
       raw = JSON.parse(await fs.readFile(filename, 'utf8'));
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code === 'ENOENT') return null;
+      // Unreadable as a record, so nothing can be recovered from it. Kept under another name
+      // rather than leaving the project impossible to open.
+      if (e instanceof SyntaxError) {
+        await fs.rename(filename, `${filename}.damaged-${Date.now()}`).catch(() => {});
+        return null;
+      }
       throw e;
     }
     if (raw.root !== root || raw.projectId !== projectId)
@@ -275,12 +284,38 @@ export class DiskOperations {
     await fs.mkdir(this.directory, { recursive: true });
     for (const name of await fs.readdir(this.directory)) {
       if (!/^[a-zA-Z0-9-]+\.json$/.test(name)) continue;
-      await noLinks(this.directory, path.join(this.directory, name));
-      const raw = JSON.parse(await fs.readFile(path.join(this.directory, name), 'utf8'));
-      if (raw.root === root && recoverable.includes(raw.status))
+      const filename = path.join(this.directory, name);
+      await noLinks(this.directory, filename);
+      // Every folder's records live here, so one unreadable record must not stop this folder.
+      let raw: { root?: unknown; status?: unknown };
+      try {
+        if ((await fs.stat(filename)).size > 32 * 1024 * 1024) continue;
+        raw = JSON.parse(await fs.readFile(filename, 'utf8'));
+      } catch {
+        continue;
+      }
+      if (raw?.root === root && recoverable.includes(raw.status as string))
         return this.load(root, name.slice(0, -5));
     }
     return null;
+  }
+  private async keepHistory(previous: Journal) {
+    const history = path.join(this.directory, 'history');
+    await fs.mkdir(history, { recursive: true });
+    await noLinks(this.directory, history);
+    await writeAtomic(path.join(history, `${previous.id}.json`), previous);
+    // Old records are only for troubleshooting; failing to clear them never stops an operation.
+    try {
+      const records = await Promise.all(
+        (await fs.readdir(history)).map(async (name) => {
+          const filename = path.join(history, name);
+          return { filename, changed: (await fs.stat(filename)).mtimeMs };
+        }),
+      );
+      records.sort((a, b) => b.changed - a.changed);
+      for (const { filename } of records.slice(HISTORY_KEPT))
+        await fs.rm(filename, { force: true });
+    } catch {}
   }
   async status(root: string, projectId: string): Promise<OperationStatus | null> {
     const j = (await this.pending(root)) ?? (await this.load(root, projectId));
@@ -385,8 +420,16 @@ export class DiskOperations {
     const listed = new Map<string, string[]>();
     const baseline = await scopedInventory(root, scope, listed);
     const hashes: Record<string, string> = {};
-    for (const c of files) hashes[c.source] = await hashFile(c.source);
     const id = randomUUID();
+    for (const [i, c] of files.entries()) {
+      this.progress({
+        operationId: id,
+        phase: '读取并校验文件',
+        completed: i,
+        total: files.length,
+      });
+      hashes[c.source] = await hashFile(c.source);
+    }
     this.prepared = { id, projectDigest: digest(project), scope, baseline, hashes };
     // Travelling system files move too, so they are not counted as left in place.
     const known = new Set([
@@ -436,7 +479,8 @@ export class DiskOperations {
     await this.mkdir(j, j.staging);
     // The persisted intent contains all endpoints. Physical identity, rather
     // than a possibly stale step counter, determines recovery after exit.
-    for (const m of j.moves) {
+    for (const [i, m] of j.moves.entries()) {
+      this.emit(j, '建立恢复点', i, j.moves.length);
       const stage = await this.assertFile(j, m.stage, m);
       const source = await this.assertFile(j, m.source, m);
       const target = await this.assertFile(j, m.target, m);
@@ -455,7 +499,7 @@ export class DiskOperations {
       for (const filename of [m.source, m.target]) {
         if (seen.has(filename.toLowerCase())) continue;
         seen.add(filename.toLowerCase());
-        if (await this.assertFile(j, filename, m)) await fs.unlink(filename);
+        if (await this.assertFile(j, filename, m)) await retryTransient(() => fs.unlink(filename));
       }
       this.emit(j, '调整文件位置', i + 1, j.moves.length);
     }
@@ -464,7 +508,7 @@ export class DiskOperations {
     for (const d of [...directories].sort((a, b) => byDepth(b, a))) {
       await noLinks(j.root, d);
       try {
-        await fs.rmdir(d);
+        await retryTransient(() => fs.rmdir(d));
       } catch (e) {
         const code = (e as NodeJS.ErrnoException).code;
         if (code === 'ENOENT' || (keepNonempty && (code === 'ENOTEMPTY' || code === 'EEXIST')))
@@ -575,7 +619,7 @@ export class DiskOperations {
   }
   private async cleanup(j: Journal) {
     for (const m of j.moves) {
-      if (await this.assertFile(j, m.stage, m)) await fs.unlink(m.stage);
+      if (await this.assertFile(j, m.stage, m)) await retryTransient(() => fs.unlink(m.stage));
     }
     await this.removeEmpty(j, [j.staging]);
   }
@@ -632,12 +676,7 @@ export class DiskOperations {
         throw new Error('存在源文件变化、目标冲突或不支持的操作，请先处理预览问题。');
       if (!preview.changed) throw new Error('当前没有需要应用的路径变化。');
       const previous = await this.load(root, project.id);
-      if (previous) {
-        const history = path.join(this.directory, 'history');
-        await fs.mkdir(history, { recursive: true });
-        await noLinks(this.directory, history);
-        await writeAtomic(path.join(history, `${previous.id}.json`), previous);
-      }
+      if (previous) await this.keepHistory(previous);
       const id = randomUUID(),
         staging = path.join(root, `.filecanvas-operation-${id}`);
       if (await statOrNull(staging)) throw new Error('恢复区已存在，请重新预览。');
@@ -694,13 +733,11 @@ export class DiskOperations {
           await this.restore(j, 'rolled-back');
         } catch (rollback) {
           j.status = 'needs-attention';
-          j.error = (rollback as Error).message;
+          j.error = readableError(rollback);
           await this.save(j);
           throw new Error(`整理未完成，需要恢复。${j.error}`);
         }
-        throw new Error(
-          `整理未完成，文件已自动恢复到原位置。原因：${e instanceof Error ? e.message : readableError(e)}`,
-        );
+        throw new Error(`整理未完成，文件已自动恢复到原位置。原因：${readableError(e)}`);
       }
       throw e;
     } finally {
@@ -722,9 +759,9 @@ export class DiskOperations {
         return await this.restore(j, 'undone');
       } catch (e) {
         j.status = 'needs-attention';
-        j.error = (e as Error).message;
+        j.error = readableError(e);
         await this.save(j);
-        throw new Error(`恢复未完成，已保留记录和文件。${j.error}排除原因后可再次恢复。`);
+        throw new Error(`恢复未完成，已保留记录和文件。${j.error} 排除原因后可再次恢复。`);
       }
     } finally {
       this.running = false;

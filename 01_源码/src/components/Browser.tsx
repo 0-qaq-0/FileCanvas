@@ -151,11 +151,13 @@ export function Browser({
           <div className="source-info">
             <span>{entry.name}</span>
             <small>
-              {entry.blocked
-                ? '不可访问'
-                : entry.kind === 'folder'
-                  ? '文件夹'
-                  : `${entry.name.includes('.') ? entry.name.split('.').at(-1)?.toUpperCase() : '文件'} · ${formatSize(entry.size)}`}
+              {entry.overflow
+                ? '文件夹内容过多'
+                : entry.blocked
+                  ? '不可访问'
+                  : entry.kind === 'folder'
+                    ? '文件夹'
+                    : `${entry.name.includes('.') ? entry.name.split('.').at(-1)?.toUpperCase() : '文件'} · ${formatSize(entry.size)}`}
             </small>
           </div>
           {entry.blocked ? (

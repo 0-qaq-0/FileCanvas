@@ -493,10 +493,96 @@
   color: var(--fc-faint);
   font-size: 11px;
 }
+/* In focus mode the bar floats over the top of the canvas; a problem must not hide beneath it. */
+.focus-mode .operation-notice.has-problem {
+  margin-top: 68px;
+}
+.external-changes {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-right: 8px;
+  padding: 3px 9px;
+  border: 1px solid #efd9a8;
+  border-radius: 999px;
+  background: #fff6e3;
+  color: #8a5a12;
+  font-size: 11px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.external-changes:hover:not(:disabled) {
+  background: #ffefcc;
+}
+.project-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.project-row .project-item {
+  flex: 1;
+  min-width: 0;
+}
+.project-row > .tag {
+  flex-shrink: 0;
+}
+.project-confirm {
+  display: flex;
+  flex-shrink: 0;
+  gap: 6px;
+}
+.button.danger-text {
+  color: var(--fc-danger-ink);
+}
+.help-about {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--fc-line);
+  font-size: 12px;
+  color: var(--fc-muted);
+}
+.help-about code {
+  overflow-wrap: anywhere;
+}
+/* A long plan stays smooth: rows off screen are not laid out. */
+.preview-list .change-row {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 96px;
+}
+.crash-screen {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 12px;
+  height: 100vh;
+  max-width: 620px;
+  margin: 0 auto;
+  padding: 24px;
+}
+.crash-screen h1 {
+  margin: 0;
+  font-size: 22px;
+}
+.crash-screen p {
+  margin: 0;
+}
+.crash-screen code {
+  max-width: 100%;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: #f0f2f1;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
 .welcome-drop {
-  position: absolute;
+  position: fixed;
   inset: 14px;
-  z-index: 5;
+  z-index: 60;
+  pointer-events: none;
   display: flex;
   flex-direction: column;
   align-items: center;

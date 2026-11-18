@@ -42,8 +42,8 @@ const FLAG = 'filecanvas.tutorial.v1';
 const STEPS = [
   { title: '这是你的整理画布', target: '.canvas-scroll' },
   { title: '随时看一眼：文件动了没有', target: '[data-tour="notice"]' },
-  { title: '不想一个个拖？先出一份草案', target: '[data-tour="draft"]' },
-  { title: '满意了，再检查并应用', target: '[data-tour="apply"]' },
+  { title: '不想一个个拖？试试自动分类', target: '[data-tour="draft"]' },
+  { title: '满意了，再预览并应用', target: '[data-tour="apply"]' },
   { title: '反悔也有办法', target: '[data-tour="more"]' },
 ];
 try {
@@ -58,7 +58,7 @@ try {
 
   // 1. A fresh profile gets an inline offer, never an overlay that blocks the first click.
   await expect(page.getByRole('button', { name: '选择文件夹，开始整理' })).toBeVisible();
-  await expect(page.getByText('第一次用？花 1 分钟看懂')).toBeVisible();
+  await expect(page.getByRole('button', { name: '开始新手教程' })).toBeVisible();
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await expect(page.getByRole('button', { name: '重新看新手教程' })).toHaveCount(0);
   await page.screenshot({ path: `${shots}/01-欢迎页.png` });
@@ -68,10 +68,10 @@ try {
   await page.evaluate((flag) => localStorage.setItem(flag, 'done'), FLAG);
   await page.reload();
   await expect(page.getByRole('button', { name: '重新看新手教程' })).toBeVisible();
-  await expect(page.getByText('第一次用？花 1 分钟看懂')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '开始新手教程' })).toHaveCount(0);
   await page.evaluate((flag) => localStorage.removeItem(flag), FLAG);
   await page.reload();
-  await expect(page.getByText('第一次用？花 1 分钟看懂')).toBeVisible();
+  await expect(page.getByRole('button', { name: '开始新手教程' })).toBeVisible();
   pass('看过教程后欢迎页改为“重新看新手教程”，清除标记后恢复提示');
 
   // 3. Starting from the welcome screen opens the demo copy first, quietly, then the tour.

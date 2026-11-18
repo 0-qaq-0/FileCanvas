@@ -2,8 +2,20 @@ import fs from 'node:fs/promises';
 import { constants } from 'node:fs';
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
-import { MAX_NODES, relativeTarget, validateProject } from '../src/domain/workspace';
-import type { Change, ImportEntry, Preview, Project, SourceEntry } from '../src/domain/types';
+import {
+  MAX_APPLY_FILES,
+  MAX_NODES,
+  relativeTarget,
+  validateProject,
+} from '../src/domain/workspace';
+import type {
+  Change,
+  ImportEntry,
+  ImportSummary,
+  Preview,
+  Project,
+  SourceEntry,
+} from '../src/domain/types';
 
 export function fileId(fullPath: string): string {
   return createHash('sha256').update(path.resolve(fullPath).toLowerCase()).digest('hex');
@@ -79,18 +91,52 @@ export function systemOrPartial(name: string): string | null {
   if (kind === 'download') return '正在下载的文件，下载完成后再整理。';
   return null;
 }
+// FileCanvas' own working entries: the recovery area of an operation and the hard-link probe.
+// They are never the user's files, so they never show up in a listing or on the canvas.
+export function isInternalEntry(name: string): boolean {
+  return /^\.filecanvas-(operation-[0-9a-f-]{36}|probe-[0-9a-f-]{36}-[ab])$/i.test(name);
+}
+// Folders nobody organizes file by file. They appear as one card, and their contents, often tens
+// of thousands of files, are not read.
+const SEALED = /^(node_modules|\.git|\.svn|\.hg|__pycache__|\.venv)$/i;
 // Why a folder holding this skipped file cannot be moved yet, naming the file.
 function blocksFolderMove(name: string, kind: 'office' | 'download'): string {
   return kind === 'office'
     ? `文件夹里的“${name}”是 Office 正在使用的临时文件，请先关闭对应文档再移动这个文件夹。`
     : `文件夹里的“${name}”还在下载，请等下载完成后再移动这个文件夹。`;
 }
-export async function listDirectory(root: string, directory: string): Promise<SourceEntry[]> {
+/**
+ * Lists a folder. A folder too large to organize at once normally fails; with `cap` the listing
+ * keeps the most recently changed entries, folders first, and ends with a note saying how many
+ * are left out, so a huge 下载 can still be opened and worked through.
+ */
+export async function listDirectory(
+  root: string,
+  directory: string,
+  options: { cap?: boolean } = {},
+): Promise<SourceEntry[]> {
   const resolved = checkPath(root, directory);
   await noLinks(root, resolved);
-  const items = await fs.readdir(resolved, { withFileTypes: true });
-  if (items.length > MAX_NODES)
-    throw new Error('该文件夹超过 5000 个直接条目。请选择更小的整理目录。');
+  let items = (await fs.readdir(resolved, { withFileTypes: true })).filter(
+    (item) => !isInternalEntry(item.name),
+  );
+  let leftOut = 0;
+  if (items.length > MAX_NODES) {
+    if (!options.cap) throw new Error('该文件夹超过 5000 个直接条目。请选择更小的整理目录。');
+    leftOut = items.length - MAX_NODES;
+    const changed = new Map<string, number>();
+    for (const item of items) {
+      const stat = await fs.lstat(path.join(resolved, item.name)).catch(() => null);
+      changed.set(item.name, stat?.mtimeMs ?? 0);
+    }
+    items = items
+      .sort(
+        (a, b) =>
+          Number(b.isDirectory()) - Number(a.isDirectory()) ||
+          changed.get(b.name)! - changed.get(a.name)!,
+      )
+      .slice(0, MAX_NODES);
+  }
   const output: SourceEntry[] = [];
   for (const item of items) {
     const p = path.join(resolved, item.name);
@@ -110,33 +156,100 @@ export async function listDirectory(root: string, directory: string): Promise<So
       });
     }
   }
-  return output.sort((a, b) =>
+  output.sort((a, b) =>
     a.kind === b.kind ? a.name.localeCompare(b.name, 'zh-CN') : a.kind === 'folder' ? -1 : 1,
   );
+  if (leftOut) {
+    const note = path.join(resolved, `还有 ${leftOut} 项未显示`);
+    output.push({
+      id: fileId(note),
+      name: `还有 ${leftOut} 项未显示`,
+      path: note,
+      kind: 'file',
+      size: 0,
+      mtimeMs: 0,
+      blocked: `这个文件夹超过 ${MAX_NODES} 项，只列出最近修改的部分。整理并应用后，用“刷新并核对”继续处理其余的。`,
+      overflow: leftOut,
+    });
+  }
+  return output;
 }
-export async function importPaths(root: string, paths: string[]): Promise<ImportEntry[]> {
+/**
+ * Reads the given items and what is inside their folders, breadth first, so everything near the
+ * top is on the canvas even when a deep folder holds more than the project can take.
+ *
+ * An item asked for by name must be usable, otherwise this throws. One that merely sits inside a
+ * chosen folder (a link, or something unreadable) is left out and counted: it must not cost the
+ * user the rest of the folder. The preview still refuses to move a folder with such a leftover.
+ *
+ * `room` limits new entries; ones in `known` are already on the canvas and take up none.
+ */
+export async function importSummary(
+  root: string,
+  paths: string[],
+  options: { room?: number; known?: Set<string> } = {},
+): Promise<ImportSummary> {
   if (!Array.isArray(paths) || paths.length > MAX_NODES) throw new Error('导入数量超出限制。');
-  const output: ImportEntry[] = [];
+  const entries: ImportEntry[] = [];
   const seen = new Set<string>();
-  const visit = async (fullPath: string, parentSourceId: string | null) => {
-    const entry = await readEntry(root, fullPath);
-    if (path.resolve(fullPath).toLowerCase() === root.toLowerCase())
-      throw new Error('项目根目录已作为画布根目录，不必再次加入。');
+  let room = Math.max(0, options.room ?? MAX_NODES);
+  let limited = false;
+  let skipped = 0;
+  const folders: SourceEntry[] = [];
+  const add = (entry: SourceEntry, parentSourceId: string | null) => {
     if (seen.has(entry.id)) return;
     seen.add(entry.id);
-    if (seen.size > MAX_NODES)
-      throw new Error('一次整理最多支持 5000 个条目，请选择更小的文件夹。');
-    output.push({ entry, parentSourceId });
-    if (entry.kind === 'folder') {
-      const children = await fs.readdir(entry.path);
-      for (const name of children)
-        if (!systemOrPartial(name)) await visit(path.join(entry.path, name), entry.id);
+    if (!options.known?.has(entry.id)) {
+      if (room <= 0) {
+        limited = true;
+        return;
+      }
+      room--;
     }
+    entries.push({ entry, parentSourceId });
+    if (entry.kind === 'folder') folders.push(entry);
   };
+  // An item inside another requested folder comes in with that folder. Walking up from each path
+  // keeps this fast for the thousands of paths a large folder sends.
   const unique = [...new Set(paths.map((p) => checkPath(root, p)))];
-  const roots = unique.filter((p) => !unique.some((other) => other !== p && inside(other, p)));
-  for (const p of roots) await visit(p, null);
-  return output;
+  const lowered = new Set(unique.map((p) => p.toLowerCase()));
+  const requested = unique.filter((p) => {
+    for (let up = path.dirname(p), last = p; up !== last; last = up, up = path.dirname(up))
+      if (lowered.has(up.toLowerCase())) return false;
+    return true;
+  });
+  for (const p of requested) {
+    const entry = await readEntry(root, p);
+    if (path.resolve(p).toLowerCase() === root.toLowerCase())
+      throw new Error('项目根目录已作为画布根目录，不必再次加入。');
+    add(entry, null);
+  }
+  for (let next = 0; next < folders.length && !limited; next++) {
+    const folder = folders[next];
+    if (SEALED.test(folder.name)) continue;
+    let names: string[];
+    try {
+      names = await fs.readdir(folder.path);
+    } catch {
+      skipped++;
+      continue;
+    }
+    for (const name of names) {
+      if (limited) break;
+      if (systemOrPartial(name) || isInternalEntry(name)) continue;
+      try {
+        add(await readEntry(root, path.join(folder.path, name)), folder.id);
+      } catch {
+        skipped++;
+      }
+    }
+  }
+  return { entries, limited, skipped };
+}
+export async function importPaths(root: string, paths: string[]): Promise<ImportEntry[]> {
+  const summary = await importSummary(root, paths);
+  if (summary.limited) throw new Error('一次整理最多支持 5000 个条目，请选择更小的文件夹。');
+  return summary.entries;
 }
 export async function searchFiles(
   root: string,
@@ -310,7 +423,9 @@ export async function generatePreview(root: string, project: Project): Promise<P
           if (skipped === 'office' || skipped === 'download')
             throw new Error(blocksFolderMove(path.relative(folder.source!, child.path), skipped));
           if (child.blocked || !sources.has(child.path.toLowerCase()))
-            throw new Error('文件夹含未加入画布或不可读取的条目，请刷新并完整加入后再移动。');
+            throw new Error(
+              `文件夹里的“${path.relative(folder.source!, child.path)}”未加入画布（可能无法读取、是链接，或内容太多），这个文件夹暂时不能整体移动。`,
+            );
           if (child.kind === 'folder') queue.push(child.path);
         }
       }
@@ -318,12 +433,12 @@ export async function generatePreview(root: string, project: Project): Promise<P
       folder.issues.push(readableError(e));
     }
   }
-  if (
+  const moving =
     changes.filter((c) => c.source && project.nodes[c.id].kind === 'file' && c.kind !== 'unchanged')
-      .length > 100
-  ) {
+      .length + companions.size;
+  if (moving > MAX_APPLY_FILES) {
     for (const c of changes.filter((c) => c.kind !== 'unchanged'))
-      c.issues.push('每次最多应用 100 个文件，请分批整理。');
+      c.issues.push(`每次最多应用 ${MAX_APPLY_FILES} 个文件，请分批整理。`);
   }
   return {
     changes,
@@ -334,10 +449,39 @@ export async function generatePreview(root: string, project: Project): Promise<P
     checkedAt: new Date().toISOString(),
   };
 }
+/** Puts a file system error in the user's words, naming the file when the error says which. */
 export function readableError(error: unknown): string {
-  const code = (error as NodeJS.ErrnoException)?.code;
-  if (code === 'ENOENT') return '文件或文件夹不存在。';
-  if (code === 'EACCES' || code === 'EPERM') return '没有访问权限，或文件被其他程序限制访问。';
-  if (code === 'ENOTDIR') return '路径中的某一级不是文件夹。';
-  return error instanceof Error ? error.message : '操作失败，请重试。';
+  const failure = error as NodeJS.ErrnoException;
+  const name = failure?.path ? path.basename(failure.path) : '';
+  const about = name ? `：${name}` : '';
+  switch (failure?.code) {
+    case 'ENOENT':
+      return name ? `文件或文件夹不存在${about}` : '文件或文件夹不存在。';
+    case 'EACCES':
+    case 'EPERM':
+      return name
+        ? `没有访问权限，或文件被其他程序限制访问${about}`
+        : '没有访问权限，或文件被其他程序限制访问。';
+    case 'EBUSY':
+      return `文件正被其他程序占用，请关闭后重试${about}`;
+    case 'ENOTDIR':
+      return '路径中的某一级不是文件夹。';
+    case 'EEXIST':
+      return `目标已存在，不会覆盖${about}`;
+    case 'ENOTEMPTY':
+      return `文件夹里还有其他内容，无法调整${about}`;
+    case 'ENOSPC':
+      return '磁盘空间不足，请清理后重试。';
+    case 'EROFS':
+      return '这个磁盘是只读的，无法修改。';
+    case 'ENAMETOOLONG':
+      return '路径太长，请缩短文件夹或文件名。';
+    case 'EMFILE':
+    case 'ENFILE':
+      return '同时打开的文件太多，请稍后重试。';
+    case 'EIO':
+      return `读写磁盘时出错，请检查磁盘或连接${about}`;
+    default:
+      return error instanceof Error ? error.message : '操作失败，请重试。';
+  }
 }

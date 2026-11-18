@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { comparePlan } from '../../01_源码/src/domain/comparison';
+import { comparePlan, comparisonImageName } from '../../01_源码/src/domain/comparison';
 import { systemOrPartial } from '../../01_源码/electron/filesystem';
 import type { CanvasNode, NodeMap } from '../../01_源码/src/domain/types';
 
@@ -88,5 +88,17 @@ describe('files that are never imported', () => {
       expect(systemOrPartial(name)).toBeTruthy();
     for (const name of ['报价.xlsx', 'desktop.ini.bak', 'partner.pdf', '说明.txt'])
       expect(systemOrPartial(name)).toBeNull();
+  });
+});
+
+describe('comparison image name', () => {
+  it('uses the local time, not UTC', () => {
+    // 20:05 local time; toISOString() would give another hour in any zone but UTC.
+    expect(comparisonImageName(new Date(2026, 9, 27, 20, 5))).toBe(
+      'FileCanvas-整理前后对比-202610272005.png',
+    );
+    expect(comparisonImageName(new Date(2026, 0, 3, 7, 9))).toBe(
+      'FileCanvas-整理前后对比-202601030709.png',
+    );
   });
 });

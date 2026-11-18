@@ -130,6 +130,21 @@ export function inventoryDigest(entries: Inventory) {
       .map(([p, s]) => [p, s.kind, s.kind === 'folder' ? null : s]),
   );
 }
+// Antivirus, indexing and backup tools hold a just-written file for a moment on Windows, which
+// shows up as EPERM, EACCES or EBUSY and clears by itself. A real lock simply fails after these.
+const TRANSIENT = ['EPERM', 'EACCES', 'EBUSY'];
+const RETRY_DELAYS = [50, 150, 400];
+export async function retryTransient<T>(task: () => Promise<T>): Promise<T> {
+  for (const delay of RETRY_DELAYS) {
+    try {
+      return await task();
+    } catch (e) {
+      if (!TRANSIENT.includes((e as NodeJS.ErrnoException).code ?? '')) throw e;
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+  return task();
+}
 export async function writeAtomic(filename: string, value: unknown) {
   const temporary = `${filename}.tmp`;
   await noLinks(path.dirname(filename), filename);
@@ -141,7 +156,12 @@ export async function writeAtomic(filename: string, value: unknown) {
   } finally {
     await handle.close();
   }
-  await fs.rename(temporary, filename);
+  try {
+    await retryTransient(() => fs.rename(temporary, filename));
+  } catch (e) {
+    await fs.unlink(temporary).catch(() => {});
+    throw e;
+  }
 }
 export async function originalProject(project: Project): Promise<Project> {
   const before = structuredClone(project);

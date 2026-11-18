@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import { createHash } from 'node:crypto';
+import { inspect } from './ui-helpers.mjs';
 const base = await fs.mkdtemp(path.join(os.tmpdir(), 'filecanvas-e2e-demo-'));
 const data = path.join(base, '应用数据');
 await fs.mkdir(data);
@@ -37,7 +38,7 @@ try {
   app = await electron.launch({ args: ['.'], env, timeout: 30000 });
   const page = await app.firstWindow();
   page.on('pageerror', (e) => errors.push(e.message));
-  await page.getByRole('button', { name: '先用 20 个示例文件试一遍' }).click();
+  await page.getByRole('button', { name: '试用示例文件' }).click();
   await expect(page.locator('.statusbar')).toContainText('20 个文件 · 2 个文件夹');
   await expect(page.getByTestId('save-state')).toHaveText('项目已保存');
   const records = await page.evaluate(() => window.fileCanvas.projects());
@@ -59,7 +60,7 @@ try {
     el.scrollLeft = Math.max(0, pos.x - 80);
   }, cover);
   await expect(card('封面草稿.png')).toBeVisible();
-  await card('封面草稿.png').click();
+  await inspect(page, card('封面草稿.png'));
   await expect(page.getByTestId('path-inspector')).toContainText('路径未变');
   const r = await card('封面草稿.png').boundingBox();
   await page.mouse.move(r.x + 50, r.y + 50);
@@ -71,10 +72,11 @@ try {
   expect(p1.nodes[cover.id].x).not.toBe(cover.x);
   expect(p1.nodes[cover.id].parentId).toBeNull();
   pass('软件内创建真实 20 文件演示副本；自由拖动只改坐标，双路径仍相同');
-  await page.getByRole('button', { name: '分类草案', exact: true }).click();
-  const draft = page.getByRole('dialog', { name: '先生成一份分类草案' });
+  await page.getByRole('button', { name: '自动分类', exact: true }).click();
+  const draft = page.getByRole('dialog', { name: '自动分类', exact: true });
+  await draft.getByLabel('分类方式').selectOption('content-project');
   await expect(draft).toContainText('16 个文件');
-  await expect(draft).toContainText('规则依据文件名');
+  await expect(draft).toContainText('按名称、扩展名与时间匹配');
   await expect(draft).toContainText('99_待确认');
   expect(await fingerprint(root)).toEqual(before);
   if (await page.getByRole('button', { name: '关闭提示', exact: true }).isVisible())
@@ -92,11 +94,11 @@ try {
   pass('分类理由可见，采用草案只改虚拟结构，整份草案一步撤销/重做');
   await card('02_创作素材').click();
   await page.getByRole('button', { name: '单独查看 02_创作素材', exact: true }).click();
-  await card('封面草稿.png').click();
+  await inspect(page, card('封面草稿.png'));
   await expect(page.getByTestId('path-inspector')).toContainText('02_创作素材/封面草稿.png');
   await expect(page.getByTestId('path-inspector')).toContainText('尚未执行');
   await page.getByRole('button', { name: '返回上一级', exact: true }).click();
-  await page.getByRole('button', { name: /检查并应用/ }).click();
+  await page.getByRole('button', { name: /预览并应用/ }).click();
   await page.getByRole('button', { name: '结构对照', exact: true }).click();
   await expect(page.getByTestId('before-tree')).not.toContainText('02_创作素材');
   await expect(page.getByTestId('after-tree')).toContainText('02_创作素材');

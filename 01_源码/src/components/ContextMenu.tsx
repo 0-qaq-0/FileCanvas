@@ -15,7 +15,7 @@ export interface MenuItem {
   group?: boolean;
 }
 // Shared by files, multi-selection and empty space. Scrolling inside the menu
-// stays usable; outside clicks, canvas scroll, Escape and focus loss dismiss it.
+// stays usable; outside clicks, the wheel outside, Escape and focus loss dismiss it.
 export function ContextMenu({
   x,
   y,
@@ -48,18 +48,21 @@ export function ContextMenu({
     const outside = (event: PointerEvent) => {
       if (!ref.current?.contains(event.target as Node)) onClose();
     };
-    const scroll = (event: Event) => {
+    // The wheel, not the scroll event: a scroll made just before the menu opened is reported a
+    // frame later, and the canvas glides to filter matches by itself. Neither means the user moved
+    // on. Dragging a scrollbar counts as a click outside.
+    const wheel = (event: Event) => {
       if (!ref.current?.contains(event.target as Node)) onClose();
     };
     window.addEventListener('pointerdown', outside, true);
     window.addEventListener('blur', close);
     window.addEventListener('resize', close);
-    window.addEventListener('scroll', scroll, true);
+    window.addEventListener('wheel', wheel, { capture: true, passive: true });
     return () => {
       window.removeEventListener('pointerdown', outside, true);
       window.removeEventListener('blur', close);
       window.removeEventListener('resize', close);
-      window.removeEventListener('scroll', scroll, true);
+      window.removeEventListener('wheel', wheel, true);
     };
   }, [onClose]);
   return (

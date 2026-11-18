@@ -1,6 +1,8 @@
 import type { CanvasGroup, CanvasNode, ImportEntry, NodeMap, Project, Workspace } from './types';
 
 export const MAX_NODES = 5000;
+// One apply handles everything a project can hold, so a whole folder never has to be split up.
+export const MAX_APPLY_FILES = MAX_NODES;
 export function validateName(name: string): void {
   if (
     !name ||
@@ -100,6 +102,10 @@ export function validateProject(project: Project): void {
       (view.parentId !== undefined &&
         view.parentId !== null &&
         typeof view.parentId !== 'string') ||
+      (view.removedIds !== undefined &&
+        (!Array.isArray(view.removedIds) ||
+          view.removedIds.length > MAX_NODES ||
+          view.removedIds.some((id) => typeof id !== 'string'))) ||
       (view.showBrowser !== undefined && typeof view.showBrowser !== 'boolean') ||
       (view.focused !== undefined && typeof view.focused !== 'boolean')
     )
@@ -217,15 +223,21 @@ export function redo(state: Workspace): Workspace {
     future: state.future.slice(0, -1),
   };
 }
-/** True while the canvas plan differs from the disk: a new folder, or an item placed elsewhere. */
-export function hasPendingPlan(project: Project): boolean {
+/**
+ * Items the plan still has to change on disk: new folders and anything placed or named differently.
+ * The comparison is exact, like the preview's, because a case-only rename is a real change.
+ */
+export function pendingNodes(project: Project): CanvasNode[] {
   const root = project.rootPath.replace(/[\\/]+$/, '');
-  return Object.values(project.nodes).some(
+  return Object.values(project.nodes).filter(
     (node) =>
       !node.source ||
-      `${root}\\${relativeTarget(project.nodes, node.id).join('\\')}`.toLowerCase() !==
-        node.source.path.toLowerCase(),
+      `${root}\\${relativeTarget(project.nodes, node.id).join('\\')}` !== node.source.path,
   );
+}
+/** True while the canvas plan differs from the disk. */
+export function hasPendingPlan(project: Project): boolean {
+  return pendingNodes(project).length > 0;
 }
 export function children(nodes: NodeMap, parentId: string | null): CanvasNode[] {
   return Object.values(nodes).filter((n) => n.parentId === parentId);

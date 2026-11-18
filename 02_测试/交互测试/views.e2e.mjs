@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import { createHash } from 'node:crypto';
+import { chooseView, inspect, more, viewOption } from './ui-helpers.mjs';
 
 // Display modes: 画布 / 平铺 / 列表 / 分组 on the same plan. Selection, sorting, grouping,
 // opening folders, dragging onto a folder (and out again), the right-click menu, filtering,
@@ -59,7 +60,7 @@ try {
   const noOverflow = () =>
     page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
 
-  await page.getByRole('button', { name: '先用 20 个示例文件试一遍' }).click();
+  await page.getByRole('button', { name: '试用示例文件' }).click();
   await expect(status()).toContainText('20 个文件 · 2 个文件夹');
   const records = (await page.evaluate(() => window.fileCanvas.projects())).data;
   const root = records[0].rootPath;
@@ -78,7 +79,7 @@ try {
   await expect(mode('画布')).toHaveAttribute('aria-pressed', 'true');
 
   // 1. Tiles: one uniform card per item of this level, folders first.
-  await mode('平铺').click();
+  await chooseView(page, '平铺');
   await expect(mode('平铺')).toHaveAttribute('aria-pressed', 'true');
   await expect(items()).toHaveCount(18);
   const order = await names();
@@ -111,7 +112,7 @@ try {
   // 3. Selection: click selects and explains a file; Ctrl toggles; Shift selects a range.
   await item(SVG).click();
   await expect(item(SVG)).toHaveAttribute('aria-selected', 'true');
-  await expect(page.locator('.file-inspector')).toBeVisible();
+  await expect(page.locator('.file-inspector')).toHaveCount(0);
   const second = order[4];
   await item(second).click({ modifiers: ['Control'] });
   await expect(page.locator('.selection-toolbar')).toContainText('已选择 2 项');
@@ -120,7 +121,7 @@ try {
   await expect(page.locator('.selection-toolbar')).toContainText('已选择 5 项');
   await page.locator('.listing-scroll').click({ position: { x: 5, y: 5 } });
   await expect(page.locator('.selection-toolbar')).toHaveCount(0);
-  pass('单击选中并显示文件内容；Ctrl 点选；Shift 选连续区间；点空白取消');
+  pass('单击只选中，不打开预览；Ctrl 点选；Shift 选连续区间；点空白取消');
 
   // 4. Keyboard: arrows move and select, Home/End jump.
   await item(order[2]).focus();
@@ -133,7 +134,7 @@ try {
   pass('键盘：方向键移动并选中，Home / End 跳到首尾');
 
   // 5. Groups: sections by type, month and plan status.
-  await mode('分组').click();
+  await chooseView(page, '分组');
   await expect(item(order[0])).toHaveAttribute('aria-selected', 'true'); // selection survives
   await expect(page.locator('.group-head strong').first()).toHaveText('文件夹');
   const typeLabels = await page.locator('.group-head strong').allTextContents();
@@ -179,7 +180,7 @@ try {
     'true',
   );
   await page.screenshot({ path: `${shots}/03-列表.png` });
-  await page.getByRole('button', { name: '全部收起' }).click();
+  await viewOption(page, '收起所有文件夹');
   await expect(page.locator('.list-row[data-depth="1"]')).toHaveCount(0);
   pass('列表：名称/类型/大小/修改时间/状态各列，点表头排序，文件夹可就地展开与收起');
 
@@ -205,11 +206,10 @@ try {
   await item(FOLDER).dragTo(item('配图.png'));
   await expect(status()).toContainText('0 项待变更');
   await expect(page.locator('.toast')).toHaveCount(0);
-  await page.getByRole('button', { name: '全部收起' }).click();
+  await viewOption(page, '收起所有文件夹');
   pass('拖到文件夹行即移入，拖到同层其他行即移出，Ctrl+Z 撤销；把文件夹拖进自己里面会被安静地忽略');
 
   // 8. Opening: double-click enters a folder; the breadcrumb leads back.
-  await page.getByRole('button', { name: '全部收起' }).click();
   await item(FOLDER).dblclick();
   await expect(page.locator('.breadcrumb')).toContainText(FOLDER);
   await expect(items()).toHaveCount(2);
@@ -233,7 +233,7 @@ try {
   pass('右键菜单与画布一致；筛选淡化未匹配项并高亮命中项');
 
   // 10. The docked settings panel: view radios, icon size on tiles, shortcuts still live.
-  await page.getByRole('button', { name: '界面设置' }).click();
+  await more(page, '界面设置');
   await expect(panel()).toBeVisible();
   await panel().getByRole('radio', { name: '平铺', exact: true }).click();
   await expect(mode('平铺')).toHaveAttribute('aria-pressed', 'true');
@@ -254,10 +254,10 @@ try {
   );
 
   // 11. The choice (and sort/group) is saved and restored.
-  await page.getByRole('button', { name: '界面设置' }).click();
+  await more(page, '界面设置');
   await panel().getByRole('slider', { name: '图标大小' }).fill('100');
   await panel().getByRole('button', { name: '完成' }).click();
-  await mode('分组').click();
+  await chooseView(page, '分组');
   await page.getByLabel('分组方式').selectOption({ label: '修改月份' });
   await page.getByLabel('排序方式').selectOption({ label: '大小' });
   await expect
@@ -277,12 +277,11 @@ try {
   // 12. Narrow window: every mode fits, with the inspector open too.
   await page.setViewportSize({ width: 1000, height: 680 });
   for (const label of ['平铺', '分组', '列表', '画布']) {
-    await mode(label).click();
+    await chooseView(page, label);
     expect(await noOverflow()).toBe(true);
   }
-  await mode('列表').click();
-  await item(SVG).click();
-  await expect(page.locator('.file-inspector')).toBeVisible();
+  await chooseView(page, '列表');
+  await inspect(page, item(SVG));
   expect(await noOverflow()).toBe(true);
   await page.screenshot({ path: `${shots}/04-窄窗口列表.png` });
   pass('1000×680 下四种展示方式都无横向溢出（列表还带着内容面板）');

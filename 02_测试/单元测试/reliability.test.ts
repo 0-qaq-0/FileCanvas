@@ -140,7 +140,9 @@ it('reports an automatic rollback accurately and leaves every original file in p
   });
   const failure = await disk.apply(root, project, preview.planId).catch((e: Error) => e);
   expect((failure as Error).message).toContain('自动恢复到原位置');
-  expect((failure as Error).message).toContain('injected failure');
+  // The cause is given in the user's words, not as the raw system message.
+  expect((failure as Error).message).toContain('没有访问权限');
+  expect((failure as Error).message).not.toContain('injected failure');
   expect((failure as Error).message).not.toContain('请查看恢复任务');
   expect(await fs.readFile(path.join(root, '待整理', '方案.md'), 'utf8')).toContain('方案正文');
   expect(await fs.readFile(path.join(root, '待整理', '说明.txt'), 'utf8')).toBe('说明正文');

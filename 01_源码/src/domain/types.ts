@@ -8,6 +8,8 @@ export interface SourceEntry {
   size: number;
   mtimeMs: number;
   blocked?: string;
+  // On the note closing a listing that was cut short: how many entries it leaves out.
+  overflow?: number;
 }
 export interface CanvasNode {
   id: string;
@@ -37,6 +39,8 @@ export interface Project {
   demo?: { scenario: 'content-project' | 'expanded-flow'; fixtureVersion: 1 };
   view?: {
     expandedIds?: string[];
+    // Items taken off the canvas on purpose: refreshing does not bring them back.
+    removedIds?: string[];
     parentId?: string | null;
     showBrowser?: boolean;
     focused?: boolean;
@@ -57,6 +61,7 @@ export interface ProjectRecord {
   name: string;
   rootPath: string;
   updatedAt: string;
+  demo?: boolean;
 }
 // A common place offered for opening, such as 下载 or 桌面 (only places that exist).
 export interface KnownFolder {
@@ -67,6 +72,17 @@ export interface KnownFolder {
 export interface ImportEntry {
   entry: SourceEntry;
   parentSourceId: string | null;
+}
+export interface ImportSummary {
+  entries: ImportEntry[];
+  // Some folders' contents did not fit within the project's limit.
+  limited: boolean;
+  // Nested items that could not be read, or are links, and were left out.
+  skipped: number;
+}
+export interface AppInfo {
+  version: string;
+  dataPath: string;
 }
 export interface Change {
   id: string;
@@ -221,10 +237,11 @@ export interface FileCanvasApi {
     context: AiContext,
     history: { role: 'user' | 'assistant'; content: string }[],
   ): Promise<ApiResult<AiReply>>;
-  openRoot(): Promise<ApiResult<Project | null>>;
+  // `columns`: cards per row for whatever a reopened project picks up from the folder.
+  openRoot(columns?: number): Promise<ApiResult<Project | null>>;
   knownFolders(): Promise<ApiResult<KnownFolder[]>>;
-  openKnown(id: string): Promise<ApiResult<Project>>;
-  openDropped(file: File): Promise<ApiResult<Project>>;
+  openKnown(id: string, columns?: number): Promise<ApiResult<Project>>;
+  openDropped(file: File, columns?: number): Promise<ApiResult<Project>>;
   // Saves the given visible part of the window as a PNG; null when the user cancels.
   saveImage(rect: {
     x: number;
@@ -234,11 +251,16 @@ export interface FileCanvasApi {
   }): Promise<ApiResult<string | null>>;
   listDirectory(path: string): Promise<ApiResult<SourceEntry[]>>;
   search(query: string): Promise<ApiResult<{ entries: SourceEntry[]; truncated: boolean }>>;
-  importPaths(paths: string[]): Promise<ApiResult<ImportEntry[]>>;
+  // `room`: how many more entries the project can take; anything beyond it is left out.
+  importPaths(paths: string[], room?: number): Promise<ApiResult<ImportSummary>>;
   save(project: Project): Promise<ApiResult<string>>;
   groupFiles(paths: string[]): Promise<ApiResult<string[]>>;
   exportGroup(project: Project, id: string): Promise<ApiResult<{ path: string } | null>>;
   projects(): Promise<ApiResult<ProjectRecord[]>>;
+  // Forgets a saved project. Its folder and files are not touched.
+  deleteProject(id: string): Promise<ApiResult<boolean>>;
+  appInfo(): Promise<ApiResult<AppInfo>>;
+  revealLogs(): Promise<ApiResult<boolean>>;
   load(id: string): Promise<ApiResult<Project>>;
   restore(): Promise<ApiResult<Project | null>>;
   preview(project: Project): Promise<ApiResult<Preview>>;
@@ -253,7 +275,8 @@ export interface FileCanvasApi {
   revealExport(): Promise<ApiResult<boolean>>;
   revealRoot(): Promise<ApiResult<boolean>>;
   onCloseRequested(callback: () => void): () => void;
-  finishClose(saved: boolean): void;
+  // `saveFailed`: the last save did not work, so the user is asked whether to close anyway.
+  finishClose(saved: boolean, saveFailed?: boolean): void;
 }
 declare global {
   interface Window {

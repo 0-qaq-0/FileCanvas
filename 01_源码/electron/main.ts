@@ -1,15 +1,15 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, shell, safeStorage } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, Menu, screen, shell, safeStorage } from 'electron';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 import { spawn } from 'node:child_process';
-import { constants } from 'node:fs';
+import { constants, readFileSync, writeFileSync } from 'node:fs';
 import {
   createProject,
-  generatePreview,
   importPaths,
+  importSummary,
   inside,
   listDirectory,
   readEntry,
@@ -22,8 +22,9 @@ import { ProjectStorage } from './storage';
 import { RulesStorage } from './rules-storage';
 import { PreferencesStorage } from './preferences-storage';
 import { createSampleFolder } from './demo-samples';
-import { hasPendingPlan, importEntries, setGridColumns, workspace } from '../src/domain/workspace';
+import { importEntries, setGridColumns, workspace } from '../src/domain/workspace';
 import { markdownPlan } from '../src/domain/plan-report';
+import { comparisonImageName } from '../src/domain/comparison';
 import type { KnownFolder, Project } from '../src/domain/types';
 import { AiService } from './ai';
 import { readContent } from './content';
@@ -31,9 +32,13 @@ import { resolveGroupFiles, writeGroupZip } from './group-archive';
 import { DiskOperations } from './disk-operations';
 import { createFlowDemo } from './flow-demo';
 import { prepareRefresh } from './refresh';
+import { reopenSaved } from './reopen';
+import { Log } from './log';
+import { fitWindow, MIN_SIZE } from './window-state';
 
 let mainWindow: BrowserWindow;
 let activeRoot: string | null = null;
+let activeProjectId: string | null = null;
 let storage: ProjectStorage;
 let rules: RulesStorage;
 let preferences: PreferencesStorage;
@@ -67,6 +72,9 @@ if ((e2e || process.env.FILECANVAS_TEST_PROFILE === '1') && process.env.FILECANV
   app.setPath('userData', dir);
 }
 const entryUrl = pathToFileURL(path.join(__dirname, '../renderer/index.html')).href;
+const log = new Log(path.join(app.getPath('userData'), 'logs'));
+process.on('uncaughtException', (error) => log.write('error', 'uncaughtException', error));
+process.on('unhandledRejection', (reason) => log.write('error', 'unhandledRejection', reason));
 const hasInstanceLock = app.requestSingleInstanceLock();
 if (!hasInstanceLock) app.quit();
 app.on('second-instance', () => {
@@ -90,6 +98,7 @@ function handle(channel: string, fn: (...args: any[]) => unknown): void {
         throw new Error('请求来源不受信任。');
       return { ok: true, data: await fn(...args) };
     } catch (error) {
+      log.write('warn', channel, error);
       return { ok: false, error: readableError(error) };
     }
   });
@@ -104,14 +113,64 @@ async function activate(project: Project): Promise<Project> {
   validateAuthorized(project, project.rootPath);
   if (inside(project.rootPath, app.getPath('userData')))
     throw new Error('请选择更具体的文件夹，项目根目录不能包含 FileCanvas 自身的数据目录。');
-  activeRoot = project.rootPath;
-  ai.reset(activeRoot);
+  // The switch comes last. If anything above fails the page keeps showing the current project,
+  // and that project has to remain the one that can be saved.
   const reconciled = await disk.reconcile(project);
   if (reconciled !== project) {
     await storage.save(reconciled);
-    await disk.acknowledge(activeRoot, project.id);
+    await disk.acknowledge(project.rootPath, project.id);
   }
+  activeRoot = project.rootPath;
+  activeProjectId = project.id;
+  ai.reset(activeRoot);
   return reconciled;
+}
+// Window size and place are remembered between runs, except in automated tests.
+const remembersWindow =
+  (!e2e && process.env.FILECANVAS_TEST_PROFILE !== '1') ||
+  process.env.FILECANVAS_TEST_WINDOW_STATE === '1';
+const windowStateFile = () => path.join(app.getPath('userData'), 'window-state.json');
+function loadWindowState() {
+  let saved: unknown = null;
+  if (remembersWindow)
+    try {
+      saved = JSON.parse(readFileSync(windowStateFile(), 'utf8'));
+    } catch {}
+  const primary = screen.getPrimaryDisplay().workArea;
+  return fitWindow(saved, [
+    primary,
+    ...screen
+      .getAllDisplays()
+      .map((d) => d.workArea)
+      .filter((r) => r.x !== primary.x || r.y !== primary.y),
+  ]);
+}
+function saveWindowState() {
+  if (!remembersWindow || mainWindow.isDestroyed()) return;
+  try {
+    writeFileSync(
+      windowStateFile(),
+      JSON.stringify({ ...mainWindow.getNormalBounds(), maximized: mainWindow.isMaximized() }),
+    );
+  } catch (error) {
+    log.write('warn', 'window-state', error);
+  }
+}
+// Types handed to the system's default program. Programs and scripts (.exe, .bat, .lnk…) are
+// never started from here: scripts open as text below, and the rest go through Explorer.
+const DEFAULT_APP_FILE =
+  /\.(txt|md|markdown|csv|tsv|json|jsonl|ya?ml|toml|ini|log|xml|pdf|rtf|epub|docx?|xlsx?|pptx?|odt|ods|odp|wps|et|dps|png|jpe?g|gif|webp|bmp|tiff?|heic|ico|psd|ai|mp3|wav|flac|m4a|aac|ogg|wma|mp4|mov|mkv|avi|wmv|webm|m4v|zip|rar|7z|tar|gz)$/i;
+const TEXT_EDITOR_FILE =
+  /\.(py|[cm]?[jt]sx?|ps1|sh|cmd|bat|vbs|c|cpp|h|hpp|rs|go|java|html|css|svg|sql)$/i;
+// Sample copies kept per computer. Older ones are created again in a click, so they are cleared.
+const DEMO_COPIES_KEPT = 3;
+async function removeProject(id: string, rootPath: string, demo: boolean) {
+  await storage.remove(id);
+  if (!demo) return;
+  // A sample copy is FileCanvas' own data: its generated folder goes with its record.
+  const runs = path.join(app.getPath('userData'), 'demo-runs');
+  const run = path.dirname(rootPath);
+  if (path.dirname(run) === runs) await fs.rm(run, { recursive: true, force: true });
 }
 app.whenReady().then(async () => {
   if (!hasInstanceLock) return;
@@ -148,11 +207,14 @@ app.whenReady().then(async () => {
     },
   });
   Menu.setApplicationMenu(null);
+  const windowState = loadWindowState();
   mainWindow = new BrowserWindow({
-    width: 1380,
-    height: 900,
-    minWidth: 1000,
-    minHeight: 680,
+    ...(windowState.x === undefined ? {} : { x: windowState.x, y: windowState.y }),
+    width: windowState.width,
+    height: windowState.height,
+    minWidth: MIN_SIZE.width,
+    minHeight: MIN_SIZE.height,
+    show: false,
     backgroundColor: '#f5f6f8',
     icon: path.join(__dirname, '../../01_源码/assets/icon.ico'),
     title: devUrl ? 'FileCanvas · 开发体验 · 展开式整理' : 'FileCanvas · 文件画布与 AI 助手',
@@ -165,24 +227,46 @@ app.whenReady().then(async () => {
     },
   });
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
-  mainWindow.webContents.on('will-navigate', (event) => event.preventDefault());
+  // Nothing may take the window elsewhere; only reloading the page itself (the error screen's
+  // 重新加载) goes through.
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    if (url !== mainWindow.webContents.getURL()) event.preventDefault();
+  });
   mainWindow.webContents.session.setPermissionRequestHandler((_contents, _permission, callback) =>
     callback(false),
   );
-  // Every way of choosing a root (dialog, common place, dropped folder) goes through the same checks.
-  // With `reuse`, a folder whose newest saved project still has an unapplied plan opens that
-  // project again, so one click on 整理下载 never hides earlier work; otherwise it starts fresh
-  // and picks up whatever is in the folder now.
-  async function openChosenRoot(chosen: string, reuse = false): Promise<Project> {
+  mainWindow.webContents.session.setPermissionCheckHandler(() => false);
+  // A crashed page is offered a reload: every canvas change is saved as it happens, and an
+  // unfinished disk operation is recovered from its journal, so nothing depends on the page.
+  mainWindow.webContents.on('render-process-gone', (_event, details) => {
+    log.write('error', 'render-process-gone', details.reason);
+    if (closing || details.reason === 'clean-exit') return;
+    rendererReady = false;
+    closePending = false;
+    void dialog
+      .showMessageBox(mainWindow, {
+        type: 'error',
+        title: 'FileCanvas',
+        message: '界面意外退出了',
+        detail: '整理计划已自动保存，本地文件不受影响。可以重新加载后继续。',
+        buttons: ['重新加载', '退出程序'],
+        defaultId: 0,
+        cancelId: 0,
+      })
+      .then(({ response }) => {
+        if (response === 0) mainWindow.webContents.reload();
+        else {
+          closing = true;
+          app.quit();
+        }
+      });
+  });
+  mainWindow.on('unresponsive', () => log.write('warn', 'window unresponsive'));
+  // Every way of choosing a root (dialog, common place, dropped folder) goes through the same
+  // checks, and a folder that already has a saved project opens that project again (see
+  // reopenSaved): opening it neither hides earlier work, loses the undo record nor piles up projects.
+  async function openChosenRoot(chosen: string): Promise<Project> {
     if (fileOperation) throw new Error('文件整理进行中，请完成后再切换目录。');
-    if (reuse) {
-      const canonical = (await fs.realpath(chosen)).toLowerCase();
-      const newest = (await storage.list()).find((r) => r.rootPath.toLowerCase() === canonical);
-      if (newest) {
-        const saved = await storage.load(newest.id);
-        if (hasPendingPlan(saved)) return activate(saved);
-      }
-    }
     if (chosen.startsWith('\\\\') || (await fs.lstat(chosen)).isSymbolicLink())
       throw new Error('暂不支持网络路径、符号链接或目录联接。');
     const canonical = await fs.realpath(chosen);
@@ -192,6 +276,8 @@ app.whenReady().then(async () => {
       );
     if (!(await fs.stat(canonical)).isDirectory()) throw new Error('请选择文件夹。');
     await fs.readdir(canonical);
+    const reopened = await reopenSaved(storage, canonical, activate);
+    if (reopened) return reopened;
     const project = createProject(canonical);
     await storage.save(project);
     return activate(project);
@@ -225,17 +311,20 @@ app.whenReady().then(async () => {
     return found;
   }
   handle('fc:known-folders', () => knownFolders());
-  handle('fc:open-known', async (id: unknown) => {
+  // `columns` lays out cards that a reopened project gains from the folder, as wide as the canvas.
+  handle('fc:open-known', async (id: unknown, columns?: unknown) => {
     const place = (await knownFolders()).find((p) => p.id === id);
     if (!place) throw new Error('没有找到这个位置，请用“选择文件夹”打开。');
-    return openChosenRoot(place.path, true);
+    if (typeof columns === 'number') setGridColumns(columns);
+    return openChosenRoot(place.path);
   });
   // The path comes from the preload, which only converts a File the user actually dropped.
-  handle('fc:open-dropped', async (chosen: unknown) => {
+  handle('fc:open-dropped', async (chosen: unknown, columns?: unknown) => {
     if (typeof chosen !== 'string' || !chosen || !path.isAbsolute(chosen))
       throw new Error('没有读到文件夹位置，请从资源管理器拖入一个文件夹。');
     if (!(await fs.stat(chosen)).isDirectory()) throw new Error('请拖入文件夹，而不是单个文件。');
-    return openChosenRoot(chosen, true);
+    if (typeof columns === 'number') setGridColumns(columns);
+    return openChosenRoot(chosen);
   });
   // Saves the visible before/after card as a PNG: the page passes the card's box, nothing else.
   handle('fc:save-image', async (rect: unknown) => {
@@ -258,8 +347,7 @@ app.whenReady().then(async () => {
       width: Math.ceil(box.width),
       height: Math.ceil(box.height),
     });
-    const stamp = new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '');
-    const name = `FileCanvas-整理前后对比-${stamp}.png`;
+    const name = comparisonImageName(new Date());
     let target: string;
     if (e2e) {
       const directory = path.join(app.getPath('userData'), 'exports');
@@ -279,7 +367,7 @@ app.whenReady().then(async () => {
     lastExportDirectory = path.dirname(lastExport);
     return lastExport;
   });
-  handle('fc:open-root', async () => {
+  handle('fc:open-root', async (columns?: unknown) => {
     if (fileOperation) throw new Error('文件整理进行中，请完成后再切换目录。');
     let chosen: string | undefined;
     if (e2e && process.env.FILECANVAS_TEST_ROOT) {
@@ -293,9 +381,11 @@ app.whenReady().then(async () => {
       });
       chosen = result.canceled ? undefined : result.filePaths[0];
     }
-    return chosen ? openChosenRoot(chosen) : null;
+    if (!chosen) return null;
+    if (typeof columns === 'number') setGridColumns(columns);
+    return openChosenRoot(chosen);
   });
-  handle('fc:list', (directory) => listDirectory(root(), directory));
+  handle('fc:list', (directory) => listDirectory(root(), directory, { cap: true }));
   handle('fc:content', (filename) => readContent(root(), filename));
   handle('fc:file-ai-access', (enabled) => ai.fileAccess(root(), enabled));
   handle('fc:file-explain', (project, id, refresh) => ai.explain(root(), project, id, refresh));
@@ -303,15 +393,8 @@ app.whenReady().then(async () => {
   handle('fc:open-file', async (filename) => {
     const entry = await readEntry(root(), filename);
     if (entry.kind !== 'file') throw new Error('请选择一个文件。');
-    const safeDocument =
-      /\.(txt|md|markdown|csv|tsv|json|jsonl|ya?ml|toml|ini|log|xml|pdf|docx?|xlsx?|pptx?|png|jpe?g|gif|webp|bmp|mp3|wav|flac|mp4|mov|mkv)$/i.test(
-        entry.name,
-      );
-    const codeFile =
-      /\.(py|[cm]?[jt]sx?|ps1|sh|cmd|bat|vbs|c|cpp|h|hpp|rs|go|java|html|css|svg|sql)$/i.test(
-        entry.name,
-      );
-    if (!safeDocument && !codeFile)
+    const codeFile = TEXT_EDITOR_FILE.test(entry.name);
+    if (!DEFAULT_APP_FILE.test(entry.name) && !codeFile)
       throw new Error('此格式暂不提供直接打开，请在资源管理器中选择合适的查看程序。');
     const method = codeFile ? 'text-editor' : 'system-default';
     if (e2e) return { path: entry.path, opened: false, method };
@@ -351,13 +434,32 @@ app.whenReady().then(async () => {
     ai.ask(root(), project, ids, question, organize, context, history),
   );
   handle('fc:search', (query) => searchFiles(root(), query));
-  handle('fc:import', (paths) => importPaths(root(), paths));
+  handle('fc:import', (paths, room) =>
+    importSummary(root(), paths, typeof room === 'number' ? { room } : {}),
+  );
   handle('fc:save', (project: Project) => {
     if (fileOperation || disk.isBusy()) throw new Error('正在执行磁盘整理，请完成后再保存或关闭。');
     validateAuthorized(project, root());
     return storage.save(project);
   });
   handle('fc:projects', () => storage.list());
+  handle('fc:delete-project', async (id: string) => {
+    if (fileOperation || disk.isBusy()) throw new Error('文件整理进行中，请完成后再操作。');
+    if (id === activeProjectId) throw new Error('这个项目正在打开，请先打开别的文件夹再删除记录。');
+    const project = await storage.load(id);
+    if ((await disk.status(project.rootPath, id).catch(() => null))?.needsRecovery)
+      throw new Error('这个项目还有未完成的文件整理，请先打开它并恢复。');
+    await removeProject(id, project.rootPath, !!project.demo);
+    return true;
+  });
+  handle('fc:app-info', () => ({ version: app.getVersion(), dataPath: app.getPath('userData') }));
+  handle('fc:reveal-logs', async () => {
+    await fs.mkdir(log.directory, { recursive: true });
+    if (e2e) return true;
+    const error = await shell.openPath(log.directory);
+    if (error) throw new Error('无法打开日志文件夹。');
+    return true;
+  });
   handle('fc:rules-load', () => rules.load());
   handle('fc:rules-save', (list) => rules.save(list));
   handle('fc:prefs-load', () => preferences.load());
@@ -431,7 +533,14 @@ app.whenReady().then(async () => {
     if (typeof columns === 'number') setGridColumns(columns);
     const populated = importEntries(workspace(project), entries, null).project;
     await storage.save(populated);
-    return activate(populated);
+    const opened = await activate(populated);
+    // Trying the sample repeatedly must not fill the disk and the project list with copies.
+    const copies = (await storage.list()).filter((r) => r.demo && r.id !== opened.id);
+    for (const old of copies.slice(DEMO_COPIES_KEPT - 1))
+      await removeProject(old.id, old.rootPath, true).catch((error) =>
+        log.write('warn', 'remove old demo', error),
+      );
+    return opened;
   });
   handle('fc:group-files', async (files: string[]) =>
     (await resolveGroupFiles(root(), files)).map((entry) => entry.path),
@@ -481,21 +590,39 @@ app.whenReady().then(async () => {
     if (error) throw new Error('无法在资源管理器中打开原始文件夹。');
     return true;
   });
-  ipcMain.on('fc:finish-close', (event, saved) => {
+  function closeNow() {
+    closing = true;
+    if (!mainWindow.isDestroyed()) mainWindow.close();
+  }
+  ipcMain.on('fc:finish-close', (event, saved, saveFailed) => {
     if (
       event.sender !== mainWindow.webContents ||
       event.senderFrame !== mainWindow.webContents.mainFrame
     )
       return;
+    if (closeTimer) clearTimeout(closeTimer);
+    closeTimer = null;
     if (saved !== true) {
       closePending = false;
+      // A save that keeps failing must never leave the user with a window that will not close.
+      if (saveFailed === true)
+        void dialog
+          .showMessageBox(mainWindow, {
+            type: 'warning',
+            title: 'FileCanvas',
+            message: '最后一次保存失败',
+            detail: '现在关闭，画布上最近的修改可能丢失。本地文件不受影响。',
+            buttons: ['留在程序', '不保存，直接关闭'],
+            defaultId: 0,
+            cancelId: 0,
+          })
+          .then(({ response }) => {
+            if (response === 1) closeNow();
+          });
       return;
     }
     Promise.all([storage.flush(), preferences.flush()])
-      .then(() => {
-        closing = true;
-        mainWindow.close();
-      })
+      .then(closeNow)
       .catch(() => {
         closePending = false;
       });
@@ -514,21 +641,35 @@ app.whenReady().then(async () => {
         storage
           .flush()
           .catch(() => {})
-          .finally(() => {
-            closing = true;
-            mainWindow.close();
-          });
+          .finally(closeNow);
         return;
       }
       if (!closePending) {
         closePending = true;
         mainWindow.webContents.send('fc:close-requested');
+        // A frozen page never answers. Unless files are being moved, close without it: each
+        // change was already saved when it was made.
+        closeTimer = setTimeout(() => {
+          closeTimer = null;
+          closePending = false;
+          if (fileOperation || disk.isBusy()) return;
+          log.write('warn', 'page did not answer the close request');
+          storage
+            .flush()
+            .catch(() => {})
+            .finally(closeNow);
+        }, 8000);
       }
+      return;
     }
+    if (closeTimer) clearTimeout(closeTimer);
+    closeTimer = null;
+    saveWindowState();
   });
   try {
     await mainWindow.loadURL(devUrl ?? entryUrl);
     if (!closing && !mainWindow.isDestroyed()) {
+      if (windowState.maximized) mainWindow.maximize();
       mainWindow.show();
       if (devUrl) {
         mainWindow.setTitle('FileCanvas · 开发体验 · 展开式整理');
@@ -537,6 +678,7 @@ app.whenReady().then(async () => {
     }
   } catch (error) {
     if (!closing) {
+      log.write('error', 'startup failed', error);
       dialog.showErrorBox('FileCanvas 启动失败', readableError(error));
       closing = true;
       app.quit();
@@ -545,5 +687,6 @@ app.whenReady().then(async () => {
 });
 let closing = false;
 let closePending = false;
+let closeTimer: ReturnType<typeof setTimeout> | null = null;
 let rendererReady = false;
 app.on('window-all-closed', () => app.quit());
