@@ -1,7 +1,8 @@
 ﻿$ErrorActionPreference = 'Stop'
 $projectRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
 $version = (Get-Content -LiteralPath (Join-Path $projectRoot 'package.json') -Raw -Encoding utf8 | ConvertFrom-Json).version
-$portablePath = Join-Path $projectRoot "release\FileCanvas-$version-Windows-x64.exe"
+$releaseDir = if ($env:FILECANVAS_RELEASE_DIR) { $env:FILECANVAS_RELEASE_DIR } else { 'release' }
+$portablePath = Join-Path $projectRoot "$releaseDir\FileCanvas-$version-Windows-x64.exe"
 $portablePath = [System.IO.Path]::GetFullPath($portablePath)
 $results = @()
 $profile = Join-Path ([IO.Path]::GetTempPath()) ('filecanvas-e2e-portable-' + [Guid]::NewGuid().ToString('N'))

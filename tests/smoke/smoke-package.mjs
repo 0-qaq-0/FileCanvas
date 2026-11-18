@@ -12,7 +12,12 @@ const env = { ...process.env, FILECANVAS_TEST_PROFILE: '1', FILECANVAS_TEST_DATA
 delete env.ELECTRON_RUN_AS_NODE;
 delete env.FILECANVAS_DEV_URL;
 const app = await electron.launch({
-  executablePath: 'release/win-unpacked/FileCanvas.exe',
+  // FILECANVAS_RELEASE_DIR points at a trial build made with -c.directories.output=<dir>.
+  executablePath: path.join(
+    process.env.FILECANVAS_RELEASE_DIR ?? 'release',
+    'win-unpacked',
+    'FileCanvas.exe',
+  ),
   env,
   timeout: 30000,
 });
