@@ -38,7 +38,9 @@ export function expandedLayout(
   expanded: Set<string>,
 ): CanvasRect[] {
   const ordered = (id: string | null) =>
-    children(nodes, id).sort((a, b) => a.y - b.y || a.x - b.x || a.name.localeCompare(b.name));
+    children(nodes, id).sort(
+      (a, b) => a.y - b.y || a.x - b.x || a.name.localeCompare(b.name, 'zh-CN'),
+    );
   const measure = (
     id: string,
     maxWidth: number,
@@ -194,11 +196,13 @@ function arrangeGroups(items: ArrangeItem[], mode: ArrangeMode): ArrangeItem[][]
   }
   const groups: ArrangeItem[][] = folders.length ? [folders] : [];
   const rest: ArrangeItem[] = [];
-  for (const [, list] of [...byExt].sort(([a], [b]) => a.localeCompare(b)))
+  for (const [, list] of [...byExt].sort(([a], [b]) => a.localeCompare(b, 'zh-CN')))
     if (list.length >= 3) groups.push(list.sort(byName));
     else rest.push(...list);
   if (rest.length)
-    groups.push(rest.sort((a, b) => extension(a).localeCompare(extension(b)) || byName(a, b)));
+    groups.push(
+      rest.sort((a, b) => extension(a).localeCompare(extension(b), 'zh-CN') || byName(a, b)),
+    );
   return groups;
 }
 /**

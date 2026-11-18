@@ -22,7 +22,7 @@ export function typeLabel(node: CanvasNode): string {
 }
 
 // Natural order (file2 before file10) in the system language, like the canvas layout.
-const collate = (a: string, b: string) => a.localeCompare(b, undefined, { numeric: true });
+const collate = (a: string, b: string) => a.localeCompare(b, 'zh-CN', { numeric: true });
 const byName = (a: CanvasNode, b: CanvasNode) =>
   collate(a.name, b.name) || a.id.localeCompare(b.id);
 

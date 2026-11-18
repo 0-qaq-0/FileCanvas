@@ -86,7 +86,7 @@ export function summarizeFolders(nodes: NodeMap): Map<string, FolderSummary> {
         types.set(label, (types.get(label) ?? 0) + 1);
       }
     }
-    result.types = [...types].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+    result.types = [...types].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'zh-CN'));
     visiting.delete(id);
     summaries.set(id, result);
     return result;

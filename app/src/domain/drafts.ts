@@ -145,7 +145,7 @@ export function buildClassificationDraft(
         : mode === 'content-project'
           ? a.folder.localeCompare(b.folder, 'zh-CN', { numeric: true })
           : mode === 'month'
-            ? b.folder.localeCompare(a.folder)
+            ? b.folder.localeCompare(a.folder, 'zh-CN')
             : // "其他" is the leftovers, so it always comes last.
               Number(a.folder === MISC_FOLDER) - Number(b.folder === MISC_FOLDER) ||
               b.rows.length - a.rows.length ||
