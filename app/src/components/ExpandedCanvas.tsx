@@ -163,6 +163,8 @@ export function Canvas(props: Props) {
     // Most recently put-down cards, so a pile keeps the last one on top (not saved).
     [raised, setRaised] = useState<string[]>([]);
   const [groupHover, setGroupHover] = useState<string | null>(null);
+  // The set the hint last named; the drop goes there, so what the hint says is what happens.
+  const groupHoverRef = useRef<string | null>(null);
   const rank = useMemo(() => new Map(raised.map((id, i) => [id, i + 1])), [raised]);
   // Said while dragging, so a drop that would be refused does not look like it will work.
   const dragIds = gesture.current?.type === 'cards' ? gesture.current.ids : [];
@@ -404,6 +406,7 @@ export function Canvas(props: Props) {
         ),
       );
       const group = groupAt(event);
+      groupHoverRef.current = group;
       setGroupHover(group);
       trackHover(group ? null : destination);
     } else {
@@ -431,6 +434,24 @@ export function Canvas(props: Props) {
       ]);
     }
   }
+  // Pointer capture can be lost mid-drag (the window loses focus, a dialog takes the pointer), and
+  // then the release never reaches the canvas and the cards stay stuck to the mouse. The window
+  // still hears it; when the canvas did too, the gesture is already over and this does nothing.
+  const finishRef = useRef<(event: React.PointerEvent, canceled?: boolean) => void>(() => {});
+  useEffect(() => {
+    const end = (canceled: boolean) => (event: PointerEvent) => {
+      if (gesture.current) finishRef.current(event as unknown as React.PointerEvent, canceled);
+    };
+    const up = end(false),
+      cancel = end(true);
+    window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', cancel);
+    return () => {
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', cancel);
+    };
+  }, []);
+  finishRef.current = finish;
   function finish(event: React.PointerEvent, canceled = false) {
     const bounds = container.current?.getBoundingClientRect();
     if (
@@ -443,7 +464,7 @@ export function Canvas(props: Props) {
       canceled = true;
     const g = gesture.current;
     if (g && !canceled && g.type === 'cards' && g.moved) {
-      const group = groupAt(event);
+      const group = groupHoverRef.current;
       if (group) props.onGroupDrop(group, g.ids, []);
       else placeCards(event, g);
     }
@@ -454,6 +475,7 @@ export function Canvas(props: Props) {
     setBox(null);
     setHover(undefined);
     setGroupHover(null);
+    groupHoverRef.current = null;
     hoverId.current = null;
     if (hoverTimer.current) clearTimeout(hoverTimer.current);
     if (surface.current?.hasPointerCapture(event.pointerId))
